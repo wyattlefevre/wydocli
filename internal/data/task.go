@@ -1,8 +1,9 @@
 package data
 
 import (
-	"strings"
+	"fmt"
 	"regexp"
+	"strings"
 )
 
 type Priority rune
@@ -17,6 +18,7 @@ const (
 )
 
 type Task struct {
+	ID             string
 	Name           string
 	Projects       []string
 	Contexts       []string
@@ -27,8 +29,10 @@ type Task struct {
 	Priority       Priority
 }
 
-func ParseTask(input string) Task {
+func ParseTask(input string, id string) Task {
 	var t Task
+	t.ID = id
+
 	// Completion: starts with "x "
 	if strings.HasPrefix(input, "x ") {
 		t.Done = true
@@ -89,7 +93,6 @@ func ParseTask(input string) Task {
 	return t
 }
 
-
 func (t Task) String() string {
 	var parts []string
 
@@ -100,7 +103,7 @@ func (t Task) String() string {
 
 	// Priority
 	if t.Priority != 0 {
-		parts = append(parts, "(" + string(t.Priority) + ")")
+		parts = append(parts, "("+string(t.Priority)+")")
 	}
 
 	// Dates
@@ -132,4 +135,16 @@ func (t Task) String() string {
 	}
 
 	return strings.Join(parts, " ")
+}
+
+func (t Task) Print() {
+	fmt.Printf("ID: %s\n", t.ID)
+	fmt.Printf("Name: %s\n", t.Name)
+	fmt.Printf("Projects: %v\n", t.Projects)
+	fmt.Printf("Contexts: %v\n", t.Contexts)
+	fmt.Printf("Done: %v\n", t.Done)
+	fmt.Printf("Tags: %v\n", t.Tags)
+	fmt.Printf("CreatedDate: %s\n", t.CreatedDate)
+	fmt.Printf("CompletionDate: %s\n", t.CompletionDate)
+	fmt.Printf("Priority: %c\n", t.Priority)
 }

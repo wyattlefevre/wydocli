@@ -1,100 +1,168 @@
 package data
 
 import (
+	"bufio"
+	"crypto/sha1"
+	"encoding/hex"
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
-	"time"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
-// Messages emitted to the app when data changes
-type TasksUpdatedMsg struct {
-	Tasks []Task
+var (
+	todoDir      = getEnv("TODO_DIR", defaultTodoDir())
+	todoFilePath = getEnv("TODO_FILE", filepath.Join(todoDir, "todo.txt"))
+	doneFilePath = getEnv("DONE_FILE", filepath.Join(todoDir, "done.txt"))
+
+	mu sync.RWMutex
+
+	todoTaskList []*Task
+	todoTaskMap  map[string]*Task
+	doneTaskList []*Task
+	doneTaskMap  map[string]*Task
+)
+
+func getEnv(key, fallback string) string {
+	if val, ok := os.LookupEnv(key); ok && val != "" {
+		return val
+	}
+	return fallback
 }
 
-// internal shared state
-var (
-	mu       sync.RWMutex
-	allTasks []Task
-	todoPath = "./todo.txt" // or configurable
-)
+func defaultTodoDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		// fallback if home can’t be determined
+		return "."
+	}
+	return home
+}
 
-// Load all tasks from the todo.txt file
-func LoadTasks() ([]Task, error) {
+func HashTaskLine(line string) string {
+	h := sha1.New()
+	h.Write([]byte(line))
+	return hex.EncodeToString(h.Sum(nil))[:10] // shorten to 10 chars for readability
+}
+
+type ParseTaskMismatchError struct {
+	Msg string
+}
+
+func (e *ParseTaskMismatchError) Error() string {
+	return e.Msg
+}
+
+func LoadAllTasks() error {
+	var err error
+	todoTaskList, todoTaskMap, err = loadTasks(todoFilePath, false)
+	if err != nil {
+		return fmt.Errorf("Error reading %s: %v", todoFilePath, err)
+	}
+	doneTaskList, doneTaskMap, err = loadTasks(doneFilePath, false)
+	if err != nil {
+		return fmt.Errorf("Error reading %s: %v", doneFilePath, err)
+	}
+	return nil
+}
+
+func CleanTasks() error {
+	var err error
+	todoTaskList, todoTaskMap, err = loadTasks(todoFilePath, true)
+	if err != nil {
+		return fmt.Errorf("Error reading %s: %v", todoFilePath, err)
+	}
+	doneTaskList, doneTaskMap, err = loadTasks(doneFilePath, true)
+	if err != nil {
+		return fmt.Errorf("Error reading %s: %v", doneFilePath, err)
+	}
+	writeTasks()
+	return nil
+}
+
+func PrintTasks() error {
+	fmt.Println("---------------")
+	fmt.Printf("TODO file Tasks: %d\n", len(todoTaskList))
+	fmt.Println("---------------")
+	for _, task := range todoTaskList {
+		task.Print()
+		fmt.Println("---")
+	}
+	fmt.Println("---------------")
+	fmt.Printf("DONE file Tasks: %d\n", len(doneTaskList))
+	fmt.Println("---------------")
+	for _, task := range doneTaskList {
+		task.Print()
+		fmt.Println("---")
+	}
+	return nil
+}
+
+func writeTasks() error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	bytes, err := os.ReadFile(todoPath)
+	// Write todo tasks
+	todoFile, err := os.Create(todoFilePath)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("Error writing %s: %v", todoFilePath, err)
 	}
-
-	lines := strings.Split(strings.TrimSpace(string(bytes)), "\n")
-	var tasks []Task
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-		tasks = append(tasks, parseTask(line))
-	}
-
-	allTasks = tasks
-	return tasks, nil
-}
-
-// Get a copy of the in-memory task list
-func GetTasks() []Task {
-	mu.RLock()
-	defer mu.RUnlock()
-
-	tasks := make([]Task, len(allTasks))
-	copy(tasks, allTasks)
-	return tasks
-}
-
-// Add a task and write to disk, then emit a refresh message
-func AddTaskCmd(description string) tea.Cmd {
-	return func() tea.Msg {
-		mu.Lock()
-		defer mu.Unlock()
-
-		// append to file
-		f, err := os.ReadFile(todoPath)
+	defer todoFile.Close()
+	for _, task := range todoTaskList {
+		_, err := fmt.Fprintln(todoFile, task.String())
 		if err != nil {
-			return err
+			return fmt.Errorf("Error writing to %s: %v", todoFilePath, err)
 		}
+	}
 
-		updated := strings.TrimSpace(string(f)) + "\n" + description + "\n"
-		if err := os.WriteFile(todoPath, []byte(updated), 0644); err != nil {
-			return err
-		}
-
-		// refresh tasks in memory
-		tasks, err := LoadTasks()
+	// Write done tasks
+	doneFile, err := os.Create(doneFilePath)
+	if err != nil {
+		return fmt.Errorf("Error writing %s: %v", doneFilePath, err)
+	}
+	defer doneFile.Close()
+	for _, task := range doneTaskList {
+		_, err := fmt.Fprintln(doneFile, task.String())
 		if err != nil {
-			return err
+			return fmt.Errorf("Error writing to %s: %v", doneFilePath, err)
 		}
-
-		// emit a message to trigger UI update
-		return TasksUpdatedMsg{Tasks: tasks}
 	}
+
+	return nil
 }
 
-// Optionally poll for changes every few seconds
-func PollTasksCmd(interval time.Duration) tea.Cmd {
-	return tea.Tick(interval, func(t time.Time) tea.Msg {
-		tasks, _ := LoadTasks()
-		return TasksUpdatedMsg{Tasks: tasks}
-	})
-}
+func loadTasks(filePath string, allowMismatch bool) ([]*Task, map[string]*Task, error) {
+	mu.Lock()
+	defer mu.Unlock()
 
-// simple todo.txt parser stub
-func parseTask(line string) Task {
-	done := strings.HasPrefix(line, "x ")
-	return Task{
-		Name: line,
-		Done:        done,
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, nil, err
 	}
+	defer file.Close()
+
+	taskList := []*Task{}
+	taskMap := make(map[string]*Task)
+
+	// Read file line by line
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.TrimSpace(line) == "" {
+			continue // skip blank lines
+		}
+		hashId := HashTaskLine(line)
+		task := ParseTask(line, hashId)
+		if task.String() != line && !allowMismatch {
+			return nil, nil, &ParseTaskMismatchError{Msg: "Malformatted task detected in todo file"}
+		}
+		taskMap[hashId] = &task
+		taskList = append(taskList, &task)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, nil, err
+	}
+	return taskList, taskMap, nil
 }

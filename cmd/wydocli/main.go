@@ -1,7 +1,19 @@
 package main
 
-import ()
+import (
+	"fmt"
+	"github.com/wyattlefevre/wydocli/internal/data"
+)
 
 func main() {
-	println("Hello, world!")
+	err := data.LoadAllTasks()
+	if err != nil {
+		fmt.Println("ERROR")
+		fmt.Println(err)
+		return
+	}
+	err = data.PrintTasks()
+	if err != nil {
+		fmt.Println(err)
+	}
 }

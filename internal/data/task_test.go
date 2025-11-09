@@ -66,9 +66,9 @@ func TestParseTask_TableDriven(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
+	for i, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := ParseTask(tc.input)
+			got := ParseTask(tc.input, i)
 			if !tasksEqual(got, tc.expected) {
 				t.Errorf("Test '%s' failed.\n%s", tc.name, diffTasks(tc.expected, got))
 			}
@@ -114,9 +114,9 @@ func TestTask_String(t *testing.T) {
 		},
 	}
 
-	for _, tc := range cases {
+	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			task := ParseTask(tc.input)
+			task := ParseTask(tc.input, i)
 			got := task.String()
 			if got != tc.expected {
 				t.Errorf("Test '%s' failed.\nExpected: %q\nGot:      %q", tc.name, tc.expected, got)
