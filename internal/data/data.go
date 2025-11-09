@@ -67,6 +67,10 @@ func LoadAllTasks() error {
 	return nil
 }
 
+func MalformedDiff() {
+	// TODO show malformed tasks next to the formatted version (used before cleaning)
+}
+
 func CleanTasks() error {
 	var err error
 	todoTaskList, todoTaskMap, err = loadTasks(todoFilePath, true)
@@ -81,7 +85,7 @@ func CleanTasks() error {
 	return nil
 }
 
-func PrintTasks() error {
+func PrintTasks() {
 	fmt.Println("---------------")
 	fmt.Printf("TODO file Tasks: %d\n", len(todoTaskList))
 	fmt.Println("---------------")
@@ -96,7 +100,6 @@ func PrintTasks() error {
 		task.Print()
 		fmt.Println("---")
 	}
-	return nil
 }
 
 func writeTasks() error {

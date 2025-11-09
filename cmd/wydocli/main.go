@@ -10,9 +10,14 @@ func main() {
 	if err != nil {
 		fmt.Println("ERROR")
 		fmt.Println(err)
+		err := data.CleanTasks()
+		if err != nil {
+			fmt.Println(err)
+		}
 		return
 	}
-	err = data.PrintTasks()
+	data.PrintTasks()
+	err = data.CleanTasks()
 	if err != nil {
 		fmt.Println(err)
 	}
