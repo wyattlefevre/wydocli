@@ -76,6 +76,93 @@ func TestParseTask_TableDriven(t *testing.T) {
 	}
 }
 
+func TestTask_String(t *testing.T) {
+	cases := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "Priority and Name",
+			input:    "(A) Buy milk",
+			expected: "(A) Buy milk",
+		},
+		{
+			name:     "Completed with Dates",
+			input:    "x (B) 2023-01-01 2023-01-02 Finish report",
+			expected: "x (B) 2023-01-01 2023-01-02 Finish report",
+		},
+		{
+			name:     "Projects, Contexts, Tags",
+			input:    "(C) Plan trip +vacation @home cost:1000",
+			expected: "(C) Plan trip +vacation @home cost:1000",
+		},
+		{
+			name:     "Multiple Projects and Contexts",
+			input:    "(A) Plan trip +vacation +workshop @home @office cost:1000",
+			expected: "(A) Plan trip +vacation +workshop @home @office cost:1000",
+		},
+		{
+			name:     "Incorrectly Formatted Task (fields out of order)",
+			input:    "+vacation @home cost:1000 (B) Plan trip",
+			expected: "+vacation @home cost:1000",
+		},
+		{
+			name:     "Incorrectly Placed Priority",
+			input:    "x 2023-01-01 2023-01-02 (B) Finish report",
+			expected: "x 2023-01-01 2023-01-02 (B) Finish report",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			task := ParseTask(tc.input)
+			got := task.String()
+			if got != tc.expected {
+				t.Errorf("Test '%s' failed.\nExpected: %q\nGot:      %q", tc.name, tc.expected, got)
+			}
+		})
+	}
+}
+
+func TestTask_String_FromStruct(t *testing.T) {
+	cases := []struct {
+		name     string
+		task     Task
+		expected string
+	}{
+		{
+			name:     "Priority and Name",
+			task:     Task{Priority: PriorityA, Name: "Buy milk"},
+			expected: "(A) Buy milk",
+		},
+		{
+			name:     "Completed with Dates",
+			task:     Task{Done: true, Priority: PriorityB, CreatedDate: "2023-01-01", CompletionDate: "2023-01-02", Name: "Finish report"},
+			expected: "x (B) 2023-01-01 2023-01-02 Finish report",
+		},
+		{
+			name:     "Projects, Contexts, Tags",
+			task:     Task{Priority: PriorityC, Name: "Plan trip", Projects: []string{"vacation"}, Contexts: []string{"home"}, Tags: map[string]string{"cost": "1000"}},
+			expected: "(C) Plan trip +vacation @home cost:1000",
+		},
+		{
+			name:     "Multiple Projects and Contexts",
+			task:     Task{Priority: PriorityA, Name: "Plan trip", Projects: []string{"vacation", "workshop"}, Contexts: []string{"home", "office"}, Tags: map[string]string{"cost": "1000"}},
+			expected: "(A) Plan trip +vacation +workshop @home @office cost:1000",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.task.String()
+			if got != tc.expected {
+				t.Errorf("Test '%s' failed.\nExpected: %q\nGot:      %q", tc.name, tc.expected, got)
+			}
+		})
+	}
+}
+
 // Helper function to compare two Task structs
 func tasksEqual(a, b Task) bool {
 	if a.Priority != b.Priority ||

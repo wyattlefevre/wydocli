@@ -88,3 +88,48 @@ func ParseTask(input string) Task {
 
 	return t
 }
+
+
+func (t Task) String() string {
+	var parts []string
+
+	// Done status
+	if t.Done {
+		parts = append(parts, "x")
+	}
+
+	// Priority
+	if t.Priority != 0 {
+		parts = append(parts, "(" + string(t.Priority) + ")")
+	}
+
+	// Dates
+	if t.CreatedDate != "" {
+		parts = append(parts, t.CreatedDate)
+	}
+	if t.CompletionDate != "" {
+		parts = append(parts, t.CompletionDate)
+	}
+
+	// Name
+	if t.Name != "" {
+		parts = append(parts, t.Name)
+	}
+
+	// Projects
+	for _, p := range t.Projects {
+		parts = append(parts, "+"+p)
+	}
+
+	// Contexts
+	for _, c := range t.Contexts {
+		parts = append(parts, "@"+c)
+	}
+
+	// Tags
+	for k, v := range t.Tags {
+		parts = append(parts, k+":"+v)
+	}
+
+	return strings.Join(parts, " ")
+}
