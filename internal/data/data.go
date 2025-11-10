@@ -12,16 +12,18 @@ import (
 )
 
 var (
-	todoDir      = getEnv("TODO_DIR", defaultTodoDir())
+	todoDir = getEnv("TODO_DIR", defaultTodoDir())
+	projDir = getEnv("TODO_PROJ_DIR", filepath.Join(defaultTodoDir(), "todo_projects"))
+
 	todoFilePath = getEnv("TODO_FILE", filepath.Join(todoDir, "todo.txt"))
 	doneFilePath = getEnv("DONE_FILE", filepath.Join(todoDir, "done.txt"))
 
 	mu sync.RWMutex
 
-	todoTaskList []*Task
-	todoTaskMap  map[string]*Task
-	doneTaskList []*Task
-	doneTaskMap  map[string]*Task
+	todoFileTaskList []Task
+	doneFileTaskList []Task
+
+	projectMap map[string]Project
 )
 
 func getEnv(key, fallback string) string {
@@ -56,28 +58,32 @@ func (e *ParseTaskMismatchError) Error() string {
 
 func LoadAllTasks() error {
 	var err error
-	todoTaskList, todoTaskMap, err = loadTasks(todoFilePath, false)
+	projectMap = make(map[string]Project)
+
+	err = scanProjectFiles(projectMap)
+	if err != nil {
+		return err
+	}
+
+	todoFileTaskList, err = loadTasks(todoFilePath, false, projectMap)
 	if err != nil {
 		return fmt.Errorf("Error reading %s: %v", todoFilePath, err)
 	}
-	doneTaskList, doneTaskMap, err = loadTasks(doneFilePath, false)
+	doneFileTaskList, err = loadTasks(doneFilePath, false, projectMap)
 	if err != nil {
 		return fmt.Errorf("Error reading %s: %v", doneFilePath, err)
 	}
 	return nil
 }
 
-func MalformedDiff() {
-	// TODO show malformed tasks next to the formatted version (used before cleaning)
-}
-
 func CleanTasks() error {
 	var err error
-	todoTaskList, todoTaskMap, err = loadTasks(todoFilePath, true)
+	projectMap = make(map[string]Project)
+	todoFileTaskList, err = loadTasks(todoFilePath, true, projectMap)
 	if err != nil {
 		return fmt.Errorf("Error reading %s: %v", todoFilePath, err)
 	}
-	doneTaskList, doneTaskMap, err = loadTasks(doneFilePath, true)
+	doneFileTaskList, err = loadTasks(doneFilePath, true, projectMap)
 	if err != nil {
 		return fmt.Errorf("Error reading %s: %v", doneFilePath, err)
 	}
@@ -87,19 +93,90 @@ func CleanTasks() error {
 
 func PrintTasks() {
 	fmt.Println("---------------")
-	fmt.Printf("TODO file Tasks: %d\n", len(todoTaskList))
+	fmt.Printf("TODO file Tasks: %d\n", len(todoFileTaskList))
 	fmt.Println("---------------")
-	for _, task := range todoTaskList {
+	for _, task := range todoFileTaskList {
 		task.Print()
 		fmt.Println("---")
 	}
 	fmt.Println("---------------")
-	fmt.Printf("DONE file Tasks: %d\n", len(doneTaskList))
+	fmt.Printf("DONE file Tasks: %d\n", len(doneFileTaskList))
 	fmt.Println("---------------")
-	for _, task := range doneTaskList {
+	for _, task := range doneFileTaskList {
 		task.Print()
 		fmt.Println("---")
 	}
+}
+
+func PrintProjects() {
+	fmt.Println("---------------")
+	fmt.Printf("Projects: %d\n", len(projectMap))
+	fmt.Println("---------------")
+	for name, project := range projectMap {
+		fmt.Printf("\nProject: %s\n", name)
+		if project.NotePath != nil {
+			fmt.Printf("NotePath: %s\n", *project.NotePath)
+		} else {
+			fmt.Printf("NotePath: nil\n")
+		}
+		todo, done := TaskCount(project.Name)
+		fmt.Printf("TODO: %d | DONE: %d\n", todo, done)
+	}
+	fmt.Println("---------------")
+}
+
+func TaskCount(project string) (int, int) {
+	todoCount := 0
+	doneCount := 0
+	for _, task := range todoFileTaskList {
+		if task.HasProject(project) {
+			if task.Done {
+				doneCount++
+			} else {
+				todoCount++
+			}
+		}
+	}
+	for _, task := range todoFileTaskList {
+		if task.HasProject(project) {
+			if task.Done {
+				doneCount++
+			} else {
+				todoCount++
+			}
+		}
+	}
+	return todoCount, doneCount
+}
+
+func scanProjectFiles(projectMap map[string]Project) error {
+	return filepath.Walk(projDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		name := strings.TrimSuffix(info.Name(), filepath.Ext(info.Name()))
+		if name == "" {
+			return nil
+		}
+		relPath, relErr := filepath.Rel(projDir, path)
+		if relErr != nil {
+			return relErr
+		}
+		if _, exists := projectMap[name]; !exists {
+			projectMap[name] = Project{
+				Name:     name,
+				NotePath: &relPath,
+			}
+		} else {
+			proj := projectMap[name]
+			proj.NotePath = &relPath
+			projectMap[name] = proj
+		}
+		return nil
+	})
 }
 
 func writeTasks() error {
@@ -112,7 +189,7 @@ func writeTasks() error {
 		return fmt.Errorf("Error writing %s: %v", todoFilePath, err)
 	}
 	defer todoFile.Close()
-	for _, task := range todoTaskList {
+	for _, task := range todoFileTaskList {
 		_, err := fmt.Fprintln(todoFile, task.String())
 		if err != nil {
 			return fmt.Errorf("Error writing to %s: %v", todoFilePath, err)
@@ -125,7 +202,7 @@ func writeTasks() error {
 		return fmt.Errorf("Error writing %s: %v", doneFilePath, err)
 	}
 	defer doneFile.Close()
-	for _, task := range doneTaskList {
+	for _, task := range doneFileTaskList {
 		_, err := fmt.Fprintln(doneFile, task.String())
 		if err != nil {
 			return fmt.Errorf("Error writing to %s: %v", doneFilePath, err)
@@ -135,18 +212,17 @@ func writeTasks() error {
 	return nil
 }
 
-func loadTasks(filePath string, allowMismatch bool) ([]*Task, map[string]*Task, error) {
+func loadTasks(filePath string, allowMismatch bool, projects map[string]Project) ([]Task, error) {
 	mu.Lock()
 	defer mu.Unlock()
 
 	file, err := os.Open(filePath)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	defer file.Close()
 
-	taskList := []*Task{}
-	taskMap := make(map[string]*Task)
+	taskList := []Task{}
 
 	// Read file line by line
 	scanner := bufio.NewScanner(file)
@@ -157,15 +233,19 @@ func loadTasks(filePath string, allowMismatch bool) ([]*Task, map[string]*Task, 
 		}
 		hashId := HashTaskLine(line)
 		task := ParseTask(line, hashId)
-		if task.String() != line && !allowMismatch {
-			return nil, nil, &ParseTaskMismatchError{Msg: "Malformatted task detected in todo file"}
+		for _, project := range task.Projects {
+			if _, exists := projects[project]; !exists {
+				projects[project] = Project{Name: project}
+			}
 		}
-		taskMap[hashId] = &task
-		taskList = append(taskList, &task)
+		if task.String() != line && !allowMismatch {
+			return nil, &ParseTaskMismatchError{Msg: "Malformatted task detected in todo file"}
+		}
+		taskList = append(taskList, task)
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return taskList, taskMap, nil
+	return taskList, nil
 }

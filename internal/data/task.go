@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"slices"
 )
 
 type Priority rune
@@ -27,6 +28,101 @@ type Task struct {
 	CreatedDate    string
 	CompletionDate string
 	Priority       Priority
+}
+
+
+func (t *Task) HasProject(project string) bool {
+	return slices.Contains(t.Projects, project)
+}
+
+func (t *Task) AddProject(project string) {
+	if !t.HasProject(project) {
+		t.Projects = append(t.Projects, project)
+	}
+}
+
+func (t *Task) RemoveProject(project string) {
+	for i, p := range t.Projects {
+		if p == project {
+			t.Projects = append(t.Projects[:i], t.Projects[i+1:]...)
+			break
+		}
+	}
+}
+
+func (t *Task) HasContext(context string) bool {
+	return slices.Contains(t.Contexts, context)
+}
+
+func (t *Task) AddContext(context string) {
+	if !t.HasContext(context) {
+		t.Contexts = append(t.Contexts, context)
+	}
+}
+
+func (t *Task) RemoveContext(context string) {
+	for i, c := range t.Contexts {
+		if c == context {
+			t.Contexts = append(t.Contexts[:i], t.Contexts[i+1:]...)
+			break
+		}
+	}
+}
+
+func (t Task) String() string {
+	var parts []string
+
+	// Done status
+	if t.Done {
+		parts = append(parts, "x")
+	}
+
+	// Priority
+	if t.Priority != 0 {
+		parts = append(parts, "("+string(t.Priority)+")")
+	}
+
+	// Dates
+	if t.CreatedDate != "" {
+		parts = append(parts, t.CreatedDate)
+	}
+	if t.CompletionDate != "" {
+		parts = append(parts, t.CompletionDate)
+	}
+
+	// Name
+	if t.Name != "" {
+		parts = append(parts, t.Name)
+	}
+
+	// Projects
+	for _, p := range t.Projects {
+		parts = append(parts, "+"+p)
+	}
+
+	// Contexts
+	for _, c := range t.Contexts {
+		parts = append(parts, "@"+c)
+	}
+
+	// Tags
+	for k, v := range t.Tags {
+		parts = append(parts, k+":"+v)
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func (t Task) Print() {
+	fmt.Printf("ID: %s\n", t.ID)
+	fmt.Printf("Name: %s\n", t.Name)
+	fmt.Printf("Projects: %v\n", t.Projects)
+	fmt.Printf("Contexts: %v\n", t.Contexts)
+	fmt.Printf("Done: %v\n", t.Done)
+	fmt.Printf("Tags: %v\n", t.Tags)
+	fmt.Printf("CreatedDate: %s\n", t.CreatedDate)
+	fmt.Printf("CompletionDate: %s\n", t.CompletionDate)
+	fmt.Printf("Priority: %c\n", t.Priority)
 }
 
 func ParseTask(input string, id string) Task {
@@ -91,60 +187,4 @@ func ParseTask(input string, id string) Task {
 	t.Name = strings.Join(words, " ")
 
 	return t
-}
-
-func (t Task) String() string {
-	var parts []string
-
-	// Done status
-	if t.Done {
-		parts = append(parts, "x")
-	}
-
-	// Priority
-	if t.Priority != 0 {
-		parts = append(parts, "("+string(t.Priority)+")")
-	}
-
-	// Dates
-	if t.CreatedDate != "" {
-		parts = append(parts, t.CreatedDate)
-	}
-	if t.CompletionDate != "" {
-		parts = append(parts, t.CompletionDate)
-	}
-
-	// Name
-	if t.Name != "" {
-		parts = append(parts, t.Name)
-	}
-
-	// Projects
-	for _, p := range t.Projects {
-		parts = append(parts, "+"+p)
-	}
-
-	// Contexts
-	for _, c := range t.Contexts {
-		parts = append(parts, "@"+c)
-	}
-
-	// Tags
-	for k, v := range t.Tags {
-		parts = append(parts, k+":"+v)
-	}
-
-	return strings.Join(parts, " ")
-}
-
-func (t Task) Print() {
-	fmt.Printf("ID: %s\n", t.ID)
-	fmt.Printf("Name: %s\n", t.Name)
-	fmt.Printf("Projects: %v\n", t.Projects)
-	fmt.Printf("Contexts: %v\n", t.Contexts)
-	fmt.Printf("Done: %v\n", t.Done)
-	fmt.Printf("Tags: %v\n", t.Tags)
-	fmt.Printf("CreatedDate: %s\n", t.CreatedDate)
-	fmt.Printf("CompletionDate: %s\n", t.CompletionDate)
-	fmt.Printf("Priority: %c\n", t.Priority)
 }
