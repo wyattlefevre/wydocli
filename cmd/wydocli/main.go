@@ -2,16 +2,15 @@ package main
 
 import (
 	"fmt"
-	"github.com/wyattlefevre/wydocli/internal/data"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/wyattlefevre/wydocli/internal/app"
 )
 
 func main() {
-	err := data.LoadAllTasks()
-	if err != nil {
-		fmt.Println("ERROR")
-		fmt.Println(err)
-		return
+	app := &app.AppModel{}
+	p := tea.NewProgram(app)
+	if _, err := p.Run(); err != nil {
+		fmt.Println("Error running program:", err)
 	}
-
-	data.PrintProjects()
 }

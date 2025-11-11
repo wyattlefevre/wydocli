@@ -20,9 +20,6 @@ var (
 
 	mu sync.RWMutex
 
-	todoFileTaskList []Task
-	doneFileTaskList []Task
-
 	projectMap map[string]Project
 )
 
@@ -56,42 +53,29 @@ func (e *ParseTaskMismatchError) Error() string {
 	return e.Msg
 }
 
-func LoadAllTasks() error {
+func LoadData(allowMismatch bool) ([]Task, []Task, map[string]Project, error) {
 	var err error
-	projectMap = make(map[string]Project)
 
+	// Projects
+	projectMap = make(map[string]Project)
 	err = scanProjectFiles(projectMap)
 	if err != nil {
-		return err
+		return nil, nil, nil, err
 	}
 
-	todoFileTaskList, err = loadTasks(todoFilePath, false, projectMap)
+	// Tasks
+	todoFileTaskList, err := loadTaskFile(todoFilePath, allowMismatch, projectMap)
 	if err != nil {
-		return fmt.Errorf("Error reading %s: %v", todoFilePath, err)
+		return nil, nil, nil, fmt.Errorf("Error reading %s: %v", todoFilePath, err)
 	}
-	doneFileTaskList, err = loadTasks(doneFilePath, false, projectMap)
+	doneFileTaskList, err := loadTaskFile(doneFilePath, allowMismatch, projectMap)
 	if err != nil {
-		return fmt.Errorf("Error reading %s: %v", doneFilePath, err)
+		return nil, nil, nil, fmt.Errorf("Error reading %s: %v", doneFilePath, err)
 	}
-	return nil
+	return todoFileTaskList, doneFileTaskList, projectMap, nil
 }
 
-func CleanTasks() error {
-	var err error
-	projectMap = make(map[string]Project)
-	todoFileTaskList, err = loadTasks(todoFilePath, true, projectMap)
-	if err != nil {
-		return fmt.Errorf("Error reading %s: %v", todoFilePath, err)
-	}
-	doneFileTaskList, err = loadTasks(doneFilePath, true, projectMap)
-	if err != nil {
-		return fmt.Errorf("Error reading %s: %v", doneFilePath, err)
-	}
-	writeTasks()
-	return nil
-}
-
-func PrintTasks() {
+func PrintTasks(todoFileTaskList []Task, doneFileTaskList []Task) {
 	fmt.Println("---------------")
 	fmt.Printf("TODO file Tasks: %d\n", len(todoFileTaskList))
 	fmt.Println("---------------")
@@ -108,7 +92,7 @@ func PrintTasks() {
 	}
 }
 
-func PrintProjects() {
+func PrintProjects(todoFileTaskList []Task, doneFileTaskList []Task) {
 	fmt.Println("---------------")
 	fmt.Printf("Projects: %d\n", len(projectMap))
 	fmt.Println("---------------")
@@ -119,13 +103,13 @@ func PrintProjects() {
 		} else {
 			fmt.Printf("NotePath: nil\n")
 		}
-		todo, done := TaskCount(project.Name)
+		todo, done := TaskCount(todoFileTaskList, doneFileTaskList, project.Name)
 		fmt.Printf("TODO: %d | DONE: %d\n", todo, done)
 	}
 	fmt.Println("---------------")
 }
 
-func TaskCount(project string) (int, int) {
+func TaskCount(todoFileTaskList []Task, doneFileTaskList []Task, project string) (int, int) {
 	todoCount := 0
 	doneCount := 0
 	for _, task := range todoFileTaskList {
@@ -147,6 +131,54 @@ func TaskCount(project string) (int, int) {
 		}
 	}
 	return todoCount, doneCount
+}
+
+func WriteTasks(todoFileTaskList []Task, doneFileTaskList []Task) error {
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Write todo tasks
+	todoFile, err := os.Create(todoFilePath)
+	if err != nil {
+		return fmt.Errorf("Error writing %s: %v", todoFilePath, err)
+	}
+	defer todoFile.Close()
+	for _, task := range todoFileTaskList {
+		_, err := fmt.Fprintln(todoFile, task.String())
+		if err != nil {
+			return fmt.Errorf("Error writing to %s: %v", todoFilePath, err)
+		}
+	}
+
+	// Write done tasks
+	doneFile, err := os.Create(doneFilePath)
+	if err != nil {
+		return fmt.Errorf("Error writing %s: %v", doneFilePath, err)
+	}
+	defer doneFile.Close()
+	for _, task := range doneFileTaskList {
+		task.Done = true
+		_, err := fmt.Fprintln(doneFile, task.String())
+		if err != nil {
+			return fmt.Errorf("Error writing to %s: %v", doneFilePath, err)
+		}
+	}
+
+	return nil
+}
+
+func ArchiveDone(todoFileTaskList []Task, doneFileTaskList []Task) error {
+	updatedTodoTaskList := []Task{}
+	updatedDoneTaskList := append([]Task(nil), doneFileTaskList...)
+	for _, task := range todoFileTaskList {
+		if task.Done {
+			updatedDoneTaskList = append(updatedDoneTaskList, task)
+		} else {
+			updatedTodoTaskList = append(updatedTodoTaskList, task)
+		}
+	}
+	err := WriteTasks(updatedTodoTaskList, updatedDoneTaskList)
+	return err
 }
 
 func scanProjectFiles(projectMap map[string]Project) error {
@@ -179,40 +211,7 @@ func scanProjectFiles(projectMap map[string]Project) error {
 	})
 }
 
-func writeTasks() error {
-	mu.Lock()
-	defer mu.Unlock()
-
-	// Write todo tasks
-	todoFile, err := os.Create(todoFilePath)
-	if err != nil {
-		return fmt.Errorf("Error writing %s: %v", todoFilePath, err)
-	}
-	defer todoFile.Close()
-	for _, task := range todoFileTaskList {
-		_, err := fmt.Fprintln(todoFile, task.String())
-		if err != nil {
-			return fmt.Errorf("Error writing to %s: %v", todoFilePath, err)
-		}
-	}
-
-	// Write done tasks
-	doneFile, err := os.Create(doneFilePath)
-	if err != nil {
-		return fmt.Errorf("Error writing %s: %v", doneFilePath, err)
-	}
-	defer doneFile.Close()
-	for _, task := range doneFileTaskList {
-		_, err := fmt.Fprintln(doneFile, task.String())
-		if err != nil {
-			return fmt.Errorf("Error writing to %s: %v", doneFilePath, err)
-		}
-	}
-
-	return nil
-}
-
-func loadTasks(filePath string, allowMismatch bool, projects map[string]Project) ([]Task, error) {
+func loadTaskFile(filePath string, allowMismatch bool, projects map[string]Project) ([]Task, error) {
 	mu.Lock()
 	defer mu.Unlock()
 
