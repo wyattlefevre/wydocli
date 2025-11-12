@@ -234,7 +234,7 @@ func loadTaskFile(filePath string, allowMismatch bool, projects map[string]Proje
 		if strings.TrimSpace(line) == "" {
 			continue // skip blank lines
 		}
-		hashId := HashTaskLine(fmt.Sprintf("%d:%s", lineNum, line))
+		hashId := HashTaskLine(fmt.Sprintf("%d:%s:%s", lineNum, filePath, line))
 		task := ParseTask(line, hashId, filePath)
 		for _, project := range task.Projects {
 			if _, exists := projects[project]; !exists {
