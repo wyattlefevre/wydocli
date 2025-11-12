@@ -7,24 +7,45 @@ import (
 )
 
 type AppModel struct {
-	stack    []tea.Model // TODO: might not need a stack. would make it easier to explicitly update and control components. in fact, it would be nice for preserving state. Only need one task picker loaded
-	tasks    []data.Task
-	projects map[string]data.Project
-	loading  bool
+	taskManager    tea.Model
+	projectManager tea.Model
+	currentView    ViewType
+	tasks          []data.Task
+	projects       map[string]data.Project
+	loading        bool
 }
+
+type ViewType int
+
+const (
+	ViewTaskManager ViewType = iota
+	ViewProjectManager
+	ViewFileManager
+)
 
 type ParseTaskMismatchMsg struct {
 	Err *data.ParseTaskMismatchError
 }
 
-type dataLoadedMsg struct {
+type DataLoadedMsg struct {
 	Tasks    []data.Task
 	Projects map[string]data.Project
 }
 
+func NewAppModel() *AppModel {
+	return &AppModel{
+		taskManager:    &components.TaskManagerModel{},
+		projectManager: &components.ProjectManagerModel{},
+		currentView:    ViewTaskManager, // or whichever view you want to start with
+		tasks:          make([]data.Task, 0),
+		projects:       make(map[string]data.Project),
+		loading:        false,
+	}
+}
+
 func (a *AppModel) Init() tea.Cmd {
-	a.stack = make([]tea.Model, 0)
 	return func() tea.Msg {
+		a.loading = true
 		tasks, projects, err := data.LoadData(false)
 		if err != nil {
 			if mismatchErr, ok := err.(*data.ParseTaskMismatchError); ok {
@@ -32,23 +53,20 @@ func (a *AppModel) Init() tea.Cmd {
 			}
 			return err // generic error message
 		}
-		return dataLoadedMsg{tasks, projects}
+		return DataLoadedMsg{tasks, projects}
 	}
 }
 
 func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
-	case dataLoadedMsg:
+	case DataLoadedMsg:
 		a.tasks = msg.Tasks
 		a.projects = msg.Projects
 		a.loading = false
 
-		// Initialize and push TaskPicker
-		if len(a.stack) == 0 {
-			taskPicker := components.NewTaskPickerModel(a.tasks)
-			a.stack = append(a.stack, taskPicker)
-			return a, taskPicker.Init()
+		if tm, ok := a.taskManager.(*components.TaskManagerModel); ok {
+			a.taskManager = tm.WithTasks(a.tasks)
 		}
 
 		return a, nil
@@ -83,25 +101,28 @@ func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if err != nil {
 				return tea.Printf("Error loading tasks: %v", err)
 			}
-			return dataLoadedMsg{tasks, projects}
+			return DataLoadedMsg{tasks, projects}
 		}
 
 	}
 
-	// If there’s a submodel, delegate updates to it
-	if len(a.stack) > 0 {
-		top := a.stack[len(a.stack)-1]
-		newTop, cmd := top.Update(msg)
-		a.stack[len(a.stack)-1] = newTop
-		return a, cmd
+	var cmd tea.Cmd
+	switch a.currentView {
+	case ViewTaskManager:
+		a.taskManager, cmd = a.taskManager.Update(msg)
+	case ViewProjectManager:
+		a.projectManager, cmd = a.projectManager.Update(msg)
 	}
 
-	return a, nil
+	return a, cmd
 }
 
 func (a *AppModel) View() string {
-	if len(a.stack) > 0 {
-		return a.stack[len(a.stack)-1].View()
+	switch a.currentView {
+	case ViewTaskManager:
+		return a.taskManager.View()
+	case ViewProjectManager:
+		return a.projectManager.View()
 	}
 	return "Home"
 }

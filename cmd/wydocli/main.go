@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	app := &app.AppModel{}
+	app := app.NewAppModel()
 	logs.Logger.Println("Starting app")
 	p := tea.NewProgram(app)
 	if _, err := p.Run(); err != nil {

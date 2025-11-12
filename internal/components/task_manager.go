@@ -7,7 +7,7 @@ import (
 	"github.com/wyattlefevre/wydocli/logs"
 )
 
-type TaskPickerModel struct {
+type TaskManagerModel struct {
 	tasks  []data.Task
 	cursor int
 }
@@ -16,17 +16,16 @@ type TaskUpdateMsg struct {
 	Task data.Task
 }
 
-func NewTaskPickerModel(tasks []data.Task) *TaskPickerModel {
-	return &TaskPickerModel{
-		tasks: tasks,
-	}
+func (m *TaskManagerModel) WithTasks(tasks []data.Task) *TaskManagerModel {
+	m.tasks = tasks
+	return m
 }
 
-func (m *TaskPickerModel) Init() tea.Cmd {
+func (m *TaskManagerModel) Init() tea.Cmd {
 	return nil
 }
 
-func (m *TaskPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *TaskManagerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -57,7 +56,7 @@ func (m *TaskPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *TaskPickerModel) View() string {
+func (m *TaskManagerModel) View() string {
 	var out string
 	for i, task := range m.tasks {
 		prefix := " "
@@ -69,7 +68,7 @@ func (m *TaskPickerModel) View() string {
 	return out
 }
 
-func (m *TaskPickerModel) selectedTask() *data.Task {
+func (m *TaskManagerModel) selectedTask() *data.Task {
 	if m.cursor >= 0 && m.cursor < len(m.tasks) {
 		return &m.tasks[m.cursor]
 	}
