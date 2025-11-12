@@ -1,7 +1,10 @@
 package app
 
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/wyattlefevre/wydocli/internal/components"
 	"github.com/wyattlefevre/wydocli/internal/data"
 )
@@ -83,6 +86,15 @@ func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return a, tea.Quit
+		case "P":
+			a.currentView = ViewProjectManager
+			return a, nil
+		case "T":
+			a.currentView = ViewTaskManager
+			return a, nil
+		case "F":
+			// TODO implement file view
+			return a, nil
 		}
 
 	case components.TaskUpdateMsg:
@@ -118,11 +130,22 @@ func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a *AppModel) View() string {
+	topBarStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("2")).
+		Padding(0, 1).
+		Bold(true)
+
+	topBar := topBarStyle.Render(" WYDO CLI | [P] Projects | [T] Tasks | [F] Files | [q] Quit")
+	var b strings.Builder
+	content := ""
 	switch a.currentView {
 	case ViewTaskManager:
-		return a.taskManager.View()
+		content = a.taskManager.View()
 	case ViewProjectManager:
-		return a.projectManager.View()
+		content = a.projectManager.View()
 	}
-	return "Home"
+	b.WriteString(topBar)
+	b.WriteString("\n\n")
+	b.WriteString(content)
+	return b.String()
 }
