@@ -90,7 +90,7 @@ func LoadData(allowMismatch bool) ([]Task, map[string]Project, error) {
 }
 
 func WriteData(tasks []Task) error {
-	logs.Logger.Println("WriteData")
+	logs.Logger.Printf("WriteData (%d tasks)", len(tasks))
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -101,7 +101,6 @@ func WriteData(tasks []Task) error {
 	}
 	defer todoFile.Close()
 	for _, task := range tasks {
-		logs.Logger.Printf("write '%s'", task.String())
 		if task.File != todoFilePath {
 			continue
 		}
@@ -234,7 +233,7 @@ func loadTaskFile(filePath string, allowMismatch bool, projects map[string]Proje
 		if strings.TrimSpace(line) == "" {
 			continue // skip blank lines
 		}
-		hashId := HashTaskLine(fmt.Sprintf("%d:%s:%s", lineNum, filePath, line))
+		hashId := HashTaskLine(fmt.Sprintf("%d:%s", lineNum, filePath))
 		task := ParseTask(line, hashId, filePath)
 		for _, project := range task.Projects {
 			if _, exists := projects[project]; !exists {
