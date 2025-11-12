@@ -227,12 +227,14 @@ func loadTaskFile(filePath string, allowMismatch bool, projects map[string]Proje
 
 	// Read file line by line
 	scanner := bufio.NewScanner(file)
+	lineNum := 0
 	for scanner.Scan() {
 		line := scanner.Text()
+		lineNum++
 		if strings.TrimSpace(line) == "" {
 			continue // skip blank lines
 		}
-		hashId := HashTaskLine(line)
+		hashId := HashTaskLine(fmt.Sprintf("%d:%s", lineNum, line))
 		task := ParseTask(line, hashId, filePath)
 		for _, project := range task.Projects {
 			if _, exists := projects[project]; !exists {
