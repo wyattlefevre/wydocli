@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/wyattlefevre/wydocli/logs"
 )
 
 var (
@@ -53,87 +55,42 @@ func (e *ParseTaskMismatchError) Error() string {
 	return e.Msg
 }
 
-func LoadData(allowMismatch bool) ([]Task, []Task, map[string]Project, error) {
+func UpdateTask(tasks []Task, updatedTask Task) {
+	logs.Logger.Printf("Update Task: %s\n", updatedTask)
+	for i, t := range tasks {
+		if t.ID == updatedTask.ID {
+			logs.Logger.Println("task found. updating...")
+			tasks[i] = updatedTask
+		}
+	}
+}
+
+func LoadData(allowMismatch bool) ([]Task, map[string]Project, error) {
+	logs.Logger.Println("LoadData")
 	var err error
 
 	// Projects
 	projectMap = make(map[string]Project)
 	err = scanProjectFiles(projectMap)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	// Tasks
-	todoFileTaskList, err := loadTaskFile(todoFilePath, allowMismatch, projectMap)
+	todoTasks, err := loadTaskFile(todoFilePath, allowMismatch, projectMap)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("Error reading %s: %v", todoFilePath, err)
+		return nil, nil, fmt.Errorf("Error reading %s: %v", todoFilePath, err)
 	}
-	doneFileTaskList, err := loadTaskFile(doneFilePath, allowMismatch, projectMap)
+	doneTasks, err := loadTaskFile(doneFilePath, allowMismatch, projectMap)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("Error reading %s: %v", doneFilePath, err)
+		return nil, nil, fmt.Errorf("Error reading %s: %v", doneFilePath, err)
 	}
-	return todoFileTaskList, doneFileTaskList, projectMap, nil
+	allTasks := append(todoTasks, doneTasks...)
+	return allTasks, projectMap, nil
 }
 
-func PrintTasks(todoFileTaskList []Task, doneFileTaskList []Task) {
-	fmt.Println("---------------")
-	fmt.Printf("TODO file Tasks: %d\n", len(todoFileTaskList))
-	fmt.Println("---------------")
-	for _, task := range todoFileTaskList {
-		task.Print()
-		fmt.Println("---")
-	}
-	fmt.Println("---------------")
-	fmt.Printf("DONE file Tasks: %d\n", len(doneFileTaskList))
-	fmt.Println("---------------")
-	for _, task := range doneFileTaskList {
-		task.Print()
-		fmt.Println("---")
-	}
-}
-
-func PrintProjects(todoFileTaskList []Task, doneFileTaskList []Task) {
-	fmt.Println("---------------")
-	fmt.Printf("Projects: %d\n", len(projectMap))
-	fmt.Println("---------------")
-	for name, project := range projectMap {
-		fmt.Printf("\nProject: %s\n", name)
-		if project.NotePath != nil {
-			fmt.Printf("NotePath: %s\n", *project.NotePath)
-		} else {
-			fmt.Printf("NotePath: nil\n")
-		}
-		todo, done := TaskCount(todoFileTaskList, doneFileTaskList, project.Name)
-		fmt.Printf("TODO: %d | DONE: %d\n", todo, done)
-	}
-	fmt.Println("---------------")
-}
-
-func TaskCount(todoFileTaskList []Task, doneFileTaskList []Task, project string) (int, int) {
-	todoCount := 0
-	doneCount := 0
-	for _, task := range todoFileTaskList {
-		if task.HasProject(project) {
-			if task.Done {
-				doneCount++
-			} else {
-				todoCount++
-			}
-		}
-	}
-	for _, task := range todoFileTaskList {
-		if task.HasProject(project) {
-			if task.Done {
-				doneCount++
-			} else {
-				todoCount++
-			}
-		}
-	}
-	return todoCount, doneCount
-}
-
-func WriteTasks(todoFileTaskList []Task, doneFileTaskList []Task) error {
+func WriteData(tasks []Task) error {
+	logs.Logger.Println("WriteData")
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -143,7 +100,11 @@ func WriteTasks(todoFileTaskList []Task, doneFileTaskList []Task) error {
 		return fmt.Errorf("Error writing %s: %v", todoFilePath, err)
 	}
 	defer todoFile.Close()
-	for _, task := range todoFileTaskList {
+	for _, task := range tasks {
+		logs.Logger.Printf("write '%s'", task.String())
+		if task.File != todoFilePath {
+			continue
+		}
 		_, err := fmt.Fprintln(todoFile, task.String())
 		if err != nil {
 			return fmt.Errorf("Error writing to %s: %v", todoFilePath, err)
@@ -156,7 +117,10 @@ func WriteTasks(todoFileTaskList []Task, doneFileTaskList []Task) error {
 		return fmt.Errorf("Error writing %s: %v", doneFilePath, err)
 	}
 	defer doneFile.Close()
-	for _, task := range doneFileTaskList {
+	for _, task := range tasks {
+		if task.File != doneFilePath {
+			continue
+		}
 		task.Done = true
 		_, err := fmt.Fprintln(doneFile, task.String())
 		if err != nil {
@@ -167,17 +131,55 @@ func WriteTasks(todoFileTaskList []Task, doneFileTaskList []Task) error {
 	return nil
 }
 
-func ArchiveDone(todoFileTaskList []Task, doneFileTaskList []Task) error {
-	updatedTodoTaskList := []Task{}
-	updatedDoneTaskList := append([]Task(nil), doneFileTaskList...)
-	for _, task := range todoFileTaskList {
-		if task.Done {
-			updatedDoneTaskList = append(updatedDoneTaskList, task)
+func PrintTasks(tasks []Task) {
+	fmt.Println("---------------")
+	fmt.Printf("Tasks: %d\n", len(tasks))
+	fmt.Println("---------------")
+	for _, task := range tasks {
+		task.Print()
+		fmt.Println("---")
+	}
+}
+
+func PrintProjects(tasks []Task) {
+	fmt.Println("---------------")
+	fmt.Printf("Projects: %d\n", len(projectMap))
+	fmt.Println("---------------")
+	for name, project := range projectMap {
+		fmt.Printf("\nProject: %s\n", name)
+		if project.NotePath != nil {
+			fmt.Printf("NotePath: %s\n", *project.NotePath)
 		} else {
-			updatedTodoTaskList = append(updatedTodoTaskList, task)
+			fmt.Printf("NotePath: nil\n")
+		}
+		todo, done := TaskCount(tasks, project.Name)
+		fmt.Printf("TODO: %d | DONE: %d\n", todo, done)
+	}
+	fmt.Println("---------------")
+}
+
+func TaskCount(tasks []Task, project string) (int, int) {
+	todoCount := 0
+	doneCount := 0
+	for _, task := range tasks {
+		if task.HasProject(project) {
+			if task.Done {
+				doneCount++
+			} else {
+				todoCount++
+			}
 		}
 	}
-	err := WriteTasks(updatedTodoTaskList, updatedDoneTaskList)
+	return todoCount, doneCount
+}
+
+func ArchiveDone(tasks []Task) error {
+	for _, task := range tasks {
+		if task.Done {
+			task.File = doneFilePath
+		}
+	}
+	err := WriteData(tasks)
 	return err
 }
 
@@ -231,7 +233,7 @@ func loadTaskFile(filePath string, allowMismatch bool, projects map[string]Proje
 			continue // skip blank lines
 		}
 		hashId := HashTaskLine(line)
-		task := ParseTask(line, hashId)
+		task := ParseTask(line, hashId, filePath)
 		for _, project := range task.Projects {
 			if _, exists := projects[project]; !exists {
 				projects[project] = Project{Name: project}

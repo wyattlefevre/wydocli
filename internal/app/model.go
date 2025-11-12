@@ -7,49 +7,51 @@ import (
 )
 
 type AppModel struct {
-	stack         []tea.Model // TODO: might not need a stack. would make it easier to explicitly update and control components. in fact, it would be nice for preserving state. Only need one task picker loaded
-	todoFileTasks []data.Task
-	doneFileTasks []data.Task
-	projectMap    map[string]data.Project
+	stack    []tea.Model // TODO: might not need a stack. would make it easier to explicitly update and control components. in fact, it would be nice for preserving state. Only need one task picker loaded
+	tasks    []data.Task
+	projects map[string]data.Project
+	loading  bool
 }
 
 type ParseTaskMismatchMsg struct {
 	Err *data.ParseTaskMismatchError
 }
 
-type initDataLoadedMsg struct {
-	Todo     []data.Task
-	Done     []data.Task
+type dataLoadedMsg struct {
+	Tasks    []data.Task
 	Projects map[string]data.Project
 }
 
 func (a *AppModel) Init() tea.Cmd {
 	a.stack = make([]tea.Model, 0)
 	return func() tea.Msg {
-		todo, done, projects, err := data.LoadData(false)
+		tasks, projects, err := data.LoadData(false)
 		if err != nil {
 			if mismatchErr, ok := err.(*data.ParseTaskMismatchError); ok {
 				return ParseTaskMismatchMsg{Err: mismatchErr}
 			}
 			return err // generic error message
 		}
-		return initDataLoadedMsg{todo, done, projects}
+		return dataLoadedMsg{tasks, projects}
 	}
 }
 
 func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
-	case initDataLoadedMsg:
-		a.todoFileTasks = msg.Todo
-		a.doneFileTasks = msg.Done
-		a.projectMap = msg.Projects
+	case dataLoadedMsg:
+		a.tasks = msg.Tasks
+		a.projects = msg.Projects
+		a.loading = false
 
 		// Initialize and push TaskPicker
-		taskPicker := components.NewTaskPickerModel(a.todoFileTasks)
-		a.stack = append(a.stack, taskPicker)
+		if len(a.stack) == 0 {
+			taskPicker := components.NewTaskPickerModel(a.tasks)
+			a.stack = append(a.stack, taskPicker)
+			return a, taskPicker.Init()
+		}
 
-		return a, taskPicker.Init()
+		return a, nil
 
 	case ParseTaskMismatchMsg:
 		// Handle the mismatch error here
@@ -57,10 +59,33 @@ func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Printf("⚠️ Parse mismatch: %v", msg.Err)
 
 	case tea.KeyMsg:
+		if a.loading {
+			return a, nil
+		}
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return a, tea.Quit
 		}
+
+	case components.TaskUpdateMsg:
+		// Update the task in a.tasks
+		data.UpdateTask(a.tasks, msg.Task)
+
+		// Block input while loading
+		a.loading = true
+		// Write to disk and then reload data in a Cmd
+		return a, func() tea.Msg {
+			err := data.WriteData(a.tasks)
+			if err != nil {
+				return tea.Printf("Error writing tasks: %v", err)
+			}
+			tasks, projects, err := data.LoadData(false)
+			if err != nil {
+				return tea.Printf("Error loading tasks: %v", err)
+			}
+			return dataLoadedMsg{tasks, projects}
+		}
+
 	}
 
 	// If there’s a submodel, delegate updates to it

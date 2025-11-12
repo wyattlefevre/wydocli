@@ -3,8 +3,8 @@ package data
 import (
 	"fmt"
 	"regexp"
-	"strings"
 	"slices"
+	"strings"
 )
 
 type Priority rune
@@ -28,8 +28,8 @@ type Task struct {
 	CreatedDate    string
 	CompletionDate string
 	Priority       Priority
+	File           string
 }
-
 
 func (t *Task) HasProject(project string) bool {
 	return slices.Contains(t.Projects, project)
@@ -125,9 +125,10 @@ func (t Task) Print() {
 	fmt.Printf("Priority: %c\n", t.Priority)
 }
 
-func ParseTask(input string, id string) Task {
+func ParseTask(input string, id string, file string) Task {
 	var t Task
 	t.ID = id
+	t.File = file
 
 	// Completion: starts with "x "
 	if strings.HasPrefix(input, "x ") {
