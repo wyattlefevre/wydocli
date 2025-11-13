@@ -133,6 +133,16 @@ func TestTask_String(t *testing.T) {
 			input:    "x 2023-01-01 2023-01-02 (B) Finish report",
 			expected: "x 2023-01-01 2023-01-02 (B) Finish report",
 		},
+		{
+			name: "handles colons with trailing space",
+			input: "Buy milk cost: 1000",
+			expected: "Buy milk cost: 1000",
+		},
+		{
+			name: "handles colons with prefixed space",
+			input: "Buy milk cost :1000",
+			expected: "Buy milk cost :1000",
+		},
 	}
 
 	for _, tc := range cases {
