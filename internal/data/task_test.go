@@ -54,6 +54,22 @@ func TestParseTask_TableDriven(t *testing.T) {
 			},
 		},
 		{
+			name:  "Tag with space after colon (should not be detected)",
+			input: "(A) Buy milk cost: 1000",
+			expected: Task{
+				Priority: PriorityA,
+				Name:     "Buy milk cost: 1000",
+			},
+		},
+		{
+			name:  "Tag with space before colon (should not be detected)",
+			input: "(A) Buy milk cost :1000",
+			expected: Task{
+				Priority: PriorityA,
+				Name:     "Buy milk cost :1000",
+			},
+		},
+		{
 			name:  "Incorrectly Formatted Task (fields out of order)",
 			input: "+vacation @home cost:1000 (B) Plan trip",
 			expected: Task{
@@ -86,6 +102,11 @@ func TestTask_String(t *testing.T) {
 			name:     "Priority and Name",
 			input:    "(A) Buy milk",
 			expected: "(A) Buy milk",
+		},
+		{
+			name:     "Name Only",
+			input:    "Buy milk",
+			expected: "Buy milk",
 		},
 		{
 			name:     "Completed with Dates",

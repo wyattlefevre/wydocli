@@ -77,12 +77,19 @@ func LoadData(allowMismatch bool) ([]Task, map[string]Project, error) {
 	}
 
 	// Tasks
+	logs.Logger.Println("load todo.txt")
 	todoTasks, err := loadTaskFile(todoFilePath, allowMismatch, projectMap)
 	if err != nil {
+		if _, ok := err.(*ParseTaskMismatchError); ok {
+			logs.Logger.Printf("ParseTaskMismatchError: %v\n", err)
+			return nil, nil, err
+		} 	
 		return nil, nil, fmt.Errorf("Error reading %s: %v", todoFilePath, err)
 	}
+	logs.Logger.Println("load done.txt")
 	doneTasks, err := loadTaskFile(doneFilePath, allowMismatch, projectMap)
 	if err != nil {
+		logs.Logger.Fatalf("Error reading file %v", err)
 		return nil, nil, fmt.Errorf("Error reading %s: %v", doneFilePath, err)
 	}
 	allTasks := append(todoTasks, doneTasks...)
@@ -241,7 +248,9 @@ func loadTaskFile(filePath string, allowMismatch bool, projects map[string]Proje
 			}
 		}
 		if task.String() != line && !allowMismatch {
-			return nil, &ParseTaskMismatchError{Msg: "Malformatted task detected in todo file"}
+			msg := fmt.Sprintf("malformed task\nparsed: %s\noriginal: %s", task.String(), line)
+			logs.Logger.Println(msg)
+			return nil, &ParseTaskMismatchError{Msg: msg}
 		}
 		taskList = append(taskList, task)
 	}

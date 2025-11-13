@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/wyattlefevre/wydocli/internal/components"
 	"github.com/wyattlefevre/wydocli/internal/data"
+	"github.com/wyattlefevre/wydocli/logs"
 )
 
 type AppModel struct {
@@ -77,6 +78,7 @@ func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ParseTaskMismatchMsg:
 		// Handle the mismatch error here
 		// For example, push a new error screen or print a message
+		logs.Logger.Println("Parse Mismatch detected, must resolve")
 		return a, tea.Printf("⚠️ Parse mismatch: %v", msg.Err)
 
 	case tea.KeyMsg:
