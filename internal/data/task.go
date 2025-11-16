@@ -30,6 +30,7 @@ type Task struct {
 	CompletionDate string
 	Priority       Priority
 	File           string
+	DueDate        string
 }
 
 func (t *Task) HasProject(project string) bool {
@@ -144,6 +145,18 @@ func ParseTask(input string, id string, file string) Task {
 		input = input[3:]
 	}
 
+	firstMetaIdx := FirstMetaIndex(
+		FirstProjectIndex(input),
+		FirstContextIndex(input),
+		FirstTagIndex(input),
+	)
+
+	if firstMetaIdx == -1 {
+		t.Name = input
+		// task has no metadata (project, context, tag)
+		return t
+	}
+
 	return t
 }
 
@@ -182,13 +195,21 @@ func FirstTagIndex(s string) int {
 }
 
 func ParseProjects(s string) []string {
-	re := regexp.MustCompile(`\+[A-Za-z0-9]+`)
-	return re.FindAllString(s, -1)
+	re := regexp.MustCompile(`[ \t]\+[A-Za-z0-9]+`)
+	matches := re.FindAllString(s, -1)
+	for i, m := range matches {
+		matches[i] = m[2:]
+	}
+	return matches
 }
 
 func ParseContexts(s string) []string {
-	re := regexp.MustCompile(`\@[A-Za-z0-9]+`)
-	return re.FindAllString(s, -1)
+	re := regexp.MustCompile(`[ \t]\@[A-Za-z0-9]+`)
+	matches := re.FindAllString(s, -1)
+	for i, m := range matches {
+		matches[i] = m[2:]
+	}
+	return matches
 }
 
 func ParseTags(s string) []string {

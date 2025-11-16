@@ -408,10 +408,10 @@ func TestParseProjects_TableDriven(t *testing.T) {
 		expected []string
 	}{
 		{"no project", "abc", []string{}},
-		{"single project", "do +work", []string{"+work"}},
-		{"multiple projects", "do +work +play", []string{"+work", "+play"}},
-		{"project at start", "+start abc", []string{"+start"}},
-		{"project with number", "do +p1", []string{"+p1"}},
+		{"single project", "do +work", []string{"work"}},
+		{"multiple projects", "do +work +play", []string{"work", "play"}},
+		{"project at start", "+start abc", []string{}},
+		{"project with number", "do +p1", []string{"p1"}},
 	}
 
 	for _, tc := range tests {
@@ -431,10 +431,10 @@ func TestParseContexts_TableDriven(t *testing.T) {
 		expected []string
 	}{
 		{"no context", "abc", []string{}},
-		{"single context", "do @home", []string{"@home"}},
-		{"multiple contexts", "do @home @office", []string{"@home", "@office"}},
-		{"context at start", "@start abc", []string{"@start"}},
-		{"context with number", "do @c1", []string{"@c1"}},
+		{"single context", "do @home", []string{"home"}},
+		{"multiple contexts", "do @home @office", []string{"home", "office"}},
+		{"context at start", "@start abc", []string{"start"}},
+		{"context with number", "do @c1", []string{"c1"}},
 	}
 
 	for _, tc := range tests {
@@ -462,6 +462,7 @@ func TestParseTags_TableDriven(t *testing.T) {
 		{"tag with space after colon", "do cost: 1000", []string{}},
 		{"tag with non-alphanumeric", "do cost-1:1000", []string{}},
 		{"tag preceded by tab", "do\tcost:1000", []string{"cost:1000"}},
+		{"tag at beginning", "cost-1:1000", []string{}},
 	}
 
 	for _, tc := range tests {
