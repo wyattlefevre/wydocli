@@ -134,14 +134,19 @@ func TestTask_String(t *testing.T) {
 			expected: "x 2023-01-01 2023-01-02 (B) Finish report",
 		},
 		{
-			name: "handles colons with trailing space",
-			input: "Buy milk cost: 1000",
+			name:     "handles colons with trailing space",
+			input:    "Buy milk cost: 1000",
 			expected: "Buy milk cost: 1000",
 		},
 		{
-			name: "handles colons with prefixed space",
-			input: "Buy milk cost :1000",
+			name:     "handles colons with prefixed space",
+			input:    "Buy milk cost :1000",
 			expected: "Buy milk cost :1000",
+		},
+		{
+			name:     "trims whitespace",
+			input:    "  Buy  milk ",
+			expected: "Buy milk",
 		},
 	}
 
@@ -284,4 +289,212 @@ func equalStringMaps(a, b map[string]string) bool {
 		}
 	}
 	return true
+}
+
+func TestFirstProjectIndex_TableDriven(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int
+	}{
+		{"no tag", "abc", -1},
+		{"tag at start", "+a bc", -1},
+		{"tag after space", "ab +c", 3},
+		{"tag after tab", "ab\t+c", 3},
+		{"multiple tags", "ab +c +d", 3},
+		{"tag with number", "ab +1", 3},
+		{"tag with letter", "ab +a", 3},
+		{"tag not preceded by space", "ab+c +a", 5},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := FirstProjectIndex(tc.input)
+			if got != tc.expected {
+				t.Errorf("Test '%s' failed. Expected: %d, Got: %d", tc.name, tc.expected, got)
+			}
+		})
+	}
+}
+
+func TestFirstContextIndex_TableDriven(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int
+	}{
+		{"no tag", "abc", -1},
+		{"tag at start", "@a bc", -1},
+		{"tag after space", "ab @c", 3},
+		{"tag after tab", "ab\t@c", 3},
+		{"multiple tags", "ab @c @d", 3},
+		{"tag with number", "ab @1", 3},
+		{"tag with letter", "ab @a", 3},
+		{"tag not preceded by space", "ab@c @a", 5},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := FirstContextIndex(tc.input)
+			if got != tc.expected {
+				t.Errorf("Test '%s' failed. Expected: %d, Got: %d", tc.name, tc.expected, got)
+			}
+		})
+	}
+}
+
+func TestFirstTagIndex_TableDriven(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int
+	}{
+		{"no tag", "abc", -1},
+		{"tag at start", "a:bc", -1},
+		{"tag at start after space", " a:bc", 1},
+		{"tag after space", "ab cost:1000", 3},
+		{"multiple tags", "ab cost:1000 foo:bar", 3},
+		{"tag with number", "ab 1:2", 3},
+		{"tag with letter", "ab a:b", 3},
+		{"tag with space before colon", "ab cost :1000", -1},
+		{"tag with space after colon", "ab cost: 1000", -1},
+		{"tag with non-alphanumeric", "ab cost-1:1000", -1},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := FirstTagIndex(tc.input)
+			if got != tc.expected {
+				t.Errorf("Test '%s' failed. Expected: %d, Got: %d", tc.name, tc.expected, got)
+			}
+		})
+	}
+}
+
+func TestParsePriority_TableDriven(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected Priority
+	}{
+		{"no priority", "Buy milk", PriorityNone},
+		{"priority A uppercase", "(A) Buy milk", PriorityA},
+		{"priority B uppercase", "(B) Buy milk", PriorityB},
+		{"priority C uppercase", "(C) Buy milk", PriorityC},
+		{"priority D uppercase", "(D) Buy milk", PriorityD},
+		{"priority E uppercase", "(E) Buy milk", PriorityE},
+		{"priority F uppercase", "(F) Buy milk", PriorityF},
+		{"priority a lowercase", "(a) Buy milk", PriorityA},
+		{"priority b lowercase", "(b) Buy milk", PriorityB},
+		{"priority f lowercase", "(f) Buy milk", PriorityF},
+		{"priority not at start", "Buy milk (A)", PriorityNone},
+		{"invalid priority", "(G) Buy milk", PriorityNone},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ParsePriority(tc.input)
+			if got != tc.expected {
+				t.Errorf("Test '%s' failed. Expected: %v, Got: %v", tc.name, tc.expected, got)
+			}
+		})
+	}
+}
+
+func TestParseProjects_TableDriven(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{"no project", "abc", []string{}},
+		{"single project", "do +work", []string{"+work"}},
+		{"multiple projects", "do +work +play", []string{"+work", "+play"}},
+		{"project at start", "+start abc", []string{"+start"}},
+		{"project with number", "do +p1", []string{"+p1"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ParseProjects(tc.input)
+			if !equalStringSlices(got, tc.expected) {
+				t.Errorf("Test '%s' failed. Expected: %#v, Got: %#v", tc.name, tc.expected, got)
+			}
+		})
+	}
+}
+
+func TestParseContexts_TableDriven(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{"no context", "abc", []string{}},
+		{"single context", "do @home", []string{"@home"}},
+		{"multiple contexts", "do @home @office", []string{"@home", "@office"}},
+		{"context at start", "@start abc", []string{"@start"}},
+		{"context with number", "do @c1", []string{"@c1"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ParseContexts(tc.input)
+			if !equalStringSlices(got, tc.expected) {
+				t.Errorf("Test '%s' failed. Expected: %#v, Got: %#v", tc.name, tc.expected, got)
+			}
+		})
+	}
+}
+
+func TestParseTags_TableDriven(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{"no tag", "abc", []string{}},
+		{"single tag", "do cost:1000", []string{"cost:1000"}},
+		{"multiple tags", "do cost:1000 foo:bar", []string{"cost:1000", "foo:bar"}},
+		{"tag with number", "do 1:2", []string{"1:2"}},
+		{"tag with letter", "do a:b", []string{"a:b"}},
+		{"tag with space before colon", "do cost :1000", []string{}},
+		{"tag with space after colon", "do cost: 1000", []string{}},
+		{"tag with non-alphanumeric", "do cost-1:1000", []string{}},
+		{"tag preceded by tab", "do\tcost:1000", []string{"cost:1000"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ParseTags(tc.input)
+			if !equalStringSlices(got, tc.expected) {
+				t.Errorf("Test '%s' failed. Expected: %#v, Got: %#v", tc.name, tc.expected, got)
+			}
+		})
+	}
+}
+
+func TestFirstMetaIndex_TableDriven(t *testing.T) {
+	tests := []struct {
+		name     string
+		i1, i2, i3 int
+		expected int
+	}{
+		{"all -1", -1, -1, -1, -1},
+		{"one positive", 2, -1, -1, 2},
+		{"two positive, first smaller", 1, 3, -1, 1},
+		{"two positive, second smaller", 5, 2, -1, 2},
+		{"three positive, middle smallest", 7, 1, 3, 1},
+		{"all positive, last smallest", 4, 2, 0, 0},
+		{"all zero", 0, 0, 0, 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := FirstMetaIndex(tc.i1, tc.i2, tc.i3)
+			if got != tc.expected {
+				t.Errorf("Test '%s' failed. Expected: %d, Got: %d", tc.name, tc.expected, got)
+			}
+		})
+	}
 }

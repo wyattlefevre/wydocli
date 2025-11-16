@@ -10,12 +10,13 @@ import (
 type Priority rune
 
 const (
-	PriorityA Priority = 'A'
-	PriorityB Priority = 'B'
-	PriorityC Priority = 'C'
-	PriorityD Priority = 'D'
-	PriorityE Priority = 'E'
-	PriorityF Priority = 'F'
+	PriorityA    Priority = 'A'
+	PriorityB    Priority = 'B'
+	PriorityC    Priority = 'C'
+	PriorityD    Priority = 'D'
+	PriorityE    Priority = 'E'
+	PriorityF    Priority = 'F'
+	PriorityNone Priority = 0
 )
 
 type Task struct {
@@ -126,66 +127,108 @@ func (t Task) Print() {
 }
 
 func ParseTask(input string, id string, file string) Task {
+	input = strings.TrimSpace(input)
+	input = CollapseWhitespace(input)
+
 	var t Task
 	t.ID = id
 	t.File = file
 
-	// Completion: starts with "x "
 	if strings.HasPrefix(input, "x ") {
 		t.Done = true
 		input = input[2:]
 	}
 
-	// Priority: (A) at the start
-	priorityRe := regexp.MustCompile(`^\(([A-F])\)\s+`)
-	if matches := priorityRe.FindStringSubmatch(input); matches != nil {
-		t.Priority = Priority(matches[1][0])
-		input = input[len(matches[0]):]
+	t.Priority = ParsePriority(input)
+	if t.Priority != PriorityNone {
+		input = input[3:]
 	}
-
-	// Dates: created and completed (YYYY-MM-DD)
-	dateRe := regexp.MustCompile(`(\d{4}-\d{2}-\d{2})`)
-	dates := dateRe.FindAllString(input, -1)
-	if len(dates) > 0 {
-		t.CreatedDate = dates[0]
-		input = strings.Replace(input, dates[0], "", 1)
-	}
-	if len(dates) > 1 {
-		t.CompletionDate = dates[1]
-		input = strings.Replace(input, dates[1], "", 1)
-	}
-
-	// Projects: +project
-	for _, word := range strings.Fields(input) {
-		if strings.HasPrefix(word, "+") {
-			t.Projects = append(t.Projects, word[1:])
-		}
-	}
-
-	// Contexts: @context
-	for _, word := range strings.Fields(input) {
-		if strings.HasPrefix(word, "@") {
-			t.Contexts = append(t.Contexts, word[1:])
-		}
-	}
-
-	// Tags: key:value
-	t.Tags = make(map[string]string)
-	for _, word := range strings.Fields(input) {
-		if strings.Contains(word, ":") {
-			parts := strings.SplitN(word, ":", 2)
-			t.Tags[parts[0]] = parts[1]
-		}
-	}
-
-	words := []string{}
-	for _, word := range strings.Fields(input) {
-		if strings.HasPrefix(word, "+") || strings.HasPrefix(word, "@") || strings.Contains(word, ":") {
-			break
-		}
-		words = append(words, word)
-	}
-	t.Name = strings.Join(words, " ")
 
 	return t
+}
+
+func CollapseWhitespace(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+func FirstProjectIndex(s string) int {
+	re := regexp.MustCompile(`[ \t]\+[A-Za-z0-9]`)
+	loc := re.FindStringIndex(s)
+	if loc != nil {
+		// Return the index of the "+" character
+		return loc[0] + 1
+	}
+	return -1
+}
+
+func FirstContextIndex(s string) int {
+	re := regexp.MustCompile(`[ \t]\@[A-Za-z0-9]`)
+	loc := re.FindStringIndex(s)
+	if loc != nil {
+		// Return the index of the "@" character
+		return loc[0] + 1
+	}
+	return -1
+}
+
+func FirstTagIndex(s string) int {
+	re := regexp.MustCompile(`[ \t][A-Za-z0-9]+\:[A-Za-z0-9]+`)
+	loc := re.FindStringIndex(s)
+	if loc != nil {
+		// Return the index of the first character of the tag (after the space or tab)
+		return loc[0] + 1
+	}
+	return -1
+}
+
+func ParseProjects(s string) []string {
+	re := regexp.MustCompile(`\+[A-Za-z0-9]+`)
+	return re.FindAllString(s, -1)
+}
+
+func ParseContexts(s string) []string {
+	re := regexp.MustCompile(`\@[A-Za-z0-9]+`)
+	return re.FindAllString(s, -1)
+}
+
+func ParseTags(s string) []string {
+	re := regexp.MustCompile(`[ \t][A-Za-z0-9]+\:[A-Za-z0-9]+`)
+	matches := re.FindAllString(s, -1)
+	trimmed := make([]string, len(matches))
+	for i, m := range matches {
+		trimmed[i] = strings.TrimSpace(m)
+	}
+	return trimmed
+}
+
+func ParsePriority(s string) Priority {
+	re := regexp.MustCompile(`^\(([A-Fa-f])\)`)
+	matches := re.FindStringSubmatch(s)
+	if matches != nil {
+		switch strings.ToUpper(matches[1]) {
+		case "A":
+			return PriorityA
+		case "B":
+			return PriorityB
+		case "C":
+			return PriorityC
+		case "D":
+			return PriorityD
+		case "E":
+			return PriorityE
+		case "F":
+			return PriorityF
+		}
+	}
+	return PriorityNone
+}
+
+func FirstMetaIndex(i1 int, i2 int, i3 int) int {
+	min := -1
+	for _, v := range []int{i1, i2, i3} {
+		if v >= 0 && (min == -1 || v < min) {
+			min = v
+		}
+	}
+	return min
 }
