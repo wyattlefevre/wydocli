@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 )
 
@@ -85,11 +86,12 @@ func (t Task) String() string {
 	}
 
 	// Dates
-	if t.CreatedDate != "" {
-		parts = append(parts, t.CreatedDate)
-	}
 	if t.CompletionDate != "" {
 		parts = append(parts, t.CompletionDate)
+	}
+
+	if t.CreatedDate != "" {
+		parts = append(parts, t.CreatedDate)
 	}
 
 	// Name
@@ -144,6 +146,46 @@ func ParseTask(input string, id string, file string) Task {
 	if t.Priority != PriorityNone {
 		input = input[3:]
 	}
+	fmt.Printf("input post priority: %s\n\n", input)
+
+	if input[0] == ' ' {
+		input = input[1:]
+	}
+
+	firstDate := ""
+	secondDate := ""
+
+	if len(input) >= 10 {
+		firstDate = ParseDate(input[:10])
+		input = input[len(firstDate):]
+	}
+
+	if input[0] == ' ' {
+		input = input[1:]
+	}
+
+	if firstDate != "" && len(input) >= 10 {
+		secondDate = ParseDate(input[:10])
+		input = input[len(secondDate):]
+	}
+
+	if input[0] == ' ' {
+		input = input[1:]
+	}
+
+	if !t.Done && firstDate != "" {
+		t.CreatedDate = firstDate
+	}
+	if t.Done && firstDate != "" && secondDate != "" {
+		t.CompletionDate = firstDate
+		t.CreatedDate = secondDate
+	}
+
+	if input[0] == ' ' {
+		input = input[1:]
+	}
+
+	fmt.Printf("input pre firstmeta call: %s\n\n", input)
 
 	firstMetaIdx := FirstMetaIndex(
 		FirstProjectIndex(input),
@@ -151,11 +193,26 @@ func ParseTask(input string, id string, file string) Task {
 		FirstTagIndex(input),
 	)
 
-	if firstMetaIdx == -1 {
-		t.Name = input
+	if firstMetaIdx < 0 {
+		t.Name = strings.TrimSpace(input)
 		// task has no metadata (project, context, tag)
 		return t
 	}
+
+	fmt.Printf("first meta idx: %d\n", firstMetaIdx)
+
+	fmt.Printf("input: %s\n", input)
+	t.Name = strings.TrimSpace(input[:firstMetaIdx])
+
+	fmt.Printf("set name %s\n", t.Name)
+
+	t.Projects = ParseProjects(input)
+	sort.Strings(t.Projects)
+
+	t.Contexts = ParseContexts(input)
+	sort.Strings(t.Contexts)
+
+	t.Tags = ParseTags(input)
 
 	return t
 }
@@ -212,14 +269,18 @@ func ParseContexts(s string) []string {
 	return matches
 }
 
-func ParseTags(s string) []string {
-	re := regexp.MustCompile(`[ \t][A-Za-z0-9]+\:[A-Za-z0-9]+`)
-	matches := re.FindAllString(s, -1)
-	trimmed := make([]string, len(matches))
-	for i, m := range matches {
-		trimmed[i] = strings.TrimSpace(m)
+func ParseTags(s string) map[string]string {
+	re := regexp.MustCompile(`[ \t]([A-Za-z0-9]+)\:([A-Za-z0-9]+)`)
+	matches := re.FindAllStringSubmatch(s, -1)
+	tags := make(map[string]string)
+	for _, m := range matches {
+		if len(m) == 3 {
+			key := m[1]
+			value := m[2]
+			tags[key] = value
+		}
 	}
-	return trimmed
+	return tags
 }
 
 func ParsePriority(s string) Priority {
@@ -252,4 +313,11 @@ func FirstMetaIndex(i1 int, i2 int, i3 int) int {
 		}
 	}
 	return min
+}
+
+func ParseDate(s string) string {
+	if len(s) == 10 && s[4] == '-' && s[7] == '-' {
+		return s
+	}
+	return ""
 }
