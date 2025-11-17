@@ -50,8 +50,9 @@ func NewAppModel() *AppModel {
 func (a *AppModel) Init() tea.Cmd {
 	return func() tea.Msg {
 		a.loading = true
-		tasks, projects, err := data.LoadData(false)
+		tasks, projects, err := data.LoadData(true)
 		if err != nil {
+			logs.Logger.Fatalf("ERROR: %s", err.Error())
 			if mismatchErr, ok := err.(*data.ParseTaskMismatchError); ok {
 				return ParseTaskMismatchMsg{Err: mismatchErr}
 			}
