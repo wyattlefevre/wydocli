@@ -146,7 +146,6 @@ func ParseTask(input string, id string, file string) Task {
 	if t.Priority != PriorityNone {
 		input = input[3:]
 	}
-	fmt.Printf("input post priority: %s\n\n", input)
 
 	if input[0] == ' ' {
 		input = input[1:]
@@ -185,7 +184,6 @@ func ParseTask(input string, id string, file string) Task {
 		input = input[1:]
 	}
 
-	fmt.Printf("input pre firstmeta call: %s\n\n", input)
 
 	firstMetaIdx := FirstMetaIndex(
 		FirstProjectIndex(input),
@@ -199,12 +197,7 @@ func ParseTask(input string, id string, file string) Task {
 		return t
 	}
 
-	fmt.Printf("first meta idx: %d\n", firstMetaIdx)
-
-	fmt.Printf("input: %s\n", input)
 	t.Name = strings.TrimSpace(input[:firstMetaIdx])
-
-	fmt.Printf("set name %s\n", t.Name)
 
 	t.Projects = ParseProjects(input)
 	sort.Strings(t.Projects)

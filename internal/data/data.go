@@ -248,7 +248,7 @@ func loadTaskFile(filePath string, allowMismatch bool, projects map[string]Proje
 			}
 		}
 		if task.String() != line && !allowMismatch {
-			msg := fmt.Sprintf("malformed task\nparsed: %s\noriginal: %s", task.String(), line)
+			msg := fmt.Sprintf("malformed task\nparsed:\t%s\noriginal:\t%s", task.String(), line)
 			logs.Logger.Println(msg)
 			return nil, &ParseTaskMismatchError{Msg: msg}
 		}

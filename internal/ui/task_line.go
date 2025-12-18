@@ -23,7 +23,7 @@ func StyledTaskLine(t data.Task) string {
 	taskLine = append(taskLine, doneStyle.Render("[ ] "))
 
 	if t.Priority != 0 {
-		taskLine = append(taskLine, priorityStyle.Render("("+string(t.Priority)+")"))
+		taskLine = append(taskLine, priorityStyle.Render("("+string(t.Priority)+") "))
 	}
 	if t.CreatedDate != "" {
 		taskLine = append(taskLine, dateStyle.Render(t.CreatedDate))
@@ -35,13 +35,13 @@ func StyledTaskLine(t data.Task) string {
 		taskLine = append(taskLine, nameStyle.Render(t.Name))
 	}
 	for _, p := range t.Projects {
-		taskLine = append(taskLine, projectStyle.Render("+"+p))
+		taskLine = append(taskLine, projectStyle.Render(" +"+p))
 	}
 	for _, c := range t.Contexts {
-		taskLine = append(taskLine, contextStyle.Render("@"+c))
+		taskLine = append(taskLine, contextStyle.Render(" @"+c))
 	}
 	for k, v := range t.Tags {
-		taskLine = append(taskLine, tagStyle.Render(k+":"+v))
+		taskLine = append(taskLine, tagStyle.Render(" "+k+":"+v))
 	}
 
 	line := lipgloss.JoinHorizontal(lipgloss.Top, taskLine...)
