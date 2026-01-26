@@ -33,6 +33,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Reinitialize logger to write to TODO_DIR
+	if err := logs.Initialize(config.Get().GetTodoDir()); err != nil {
+		// Non-fatal: warn but continue with temporary logger location
+		fmt.Fprintf(os.Stderr, "Warning: Could not move debug.log to TODO_DIR: %v\n", err)
+	}
+
 	// Initialize the task service
 	svc, err := service.NewTaskService()
 	if err != nil {

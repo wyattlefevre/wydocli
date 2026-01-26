@@ -32,7 +32,7 @@ wydoCLI is a terminal-based task manager built with [Bubble Tea](https://github.
   - `TaskEditorModel` - Task editing (stub)
 - **internal/data/** - Data layer for parsing and persisting tasks/projects
 - **internal/ui/** - Styling utilities for rendering task lines
-- **logs/** - Global logger that writes to `debug.log`
+- **logs/** - Global logger that writes to `debug.log` in TODO_DIR
 
 ### Data Flow
 
@@ -48,6 +48,10 @@ Tasks follow the [todo.txt format](http://todotxt.org/). The parser in `internal
 - Extracts projects (`+project`), contexts (`@context`), and key:value tags
 - Uses `Task.String()` to serialize back to todo.txt format
 - Validates round-trip parsing (parsed task must serialize back to original)
+
+### Logging
+
+wydoCLI logs debug information to `debug.log` in the TODO_DIR directory (same location as todo.txt and done.txt). The logger is initialized at startup and automatically moves to the configured TODO_DIR after configuration loads.
 
 ### Configuration via Environment Variables
 
