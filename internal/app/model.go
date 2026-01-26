@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/wyattlefevre/wydocli/internal/components"
 	"github.com/wyattlefevre/wydocli/internal/data"
+	"github.com/wyattlefevre/wydocli/internal/service"
 	"github.com/wyattlefevre/wydocli/logs"
 )
 
@@ -17,6 +18,7 @@ type AppModel struct {
 	tasks          []data.Task
 	projects       map[string]data.Project
 	loading        bool
+	service        service.TaskService
 }
 
 type ViewType int
@@ -36,27 +38,58 @@ type DataLoadedMsg struct {
 	Projects map[string]data.Project
 }
 
+// NewAppModel creates a new AppModel without a service (legacy, loads data internally)
 func NewAppModel() *AppModel {
 	return &AppModel{
 		taskManager:    &components.TaskManagerModel{},
 		projectManager: &components.ProjectManagerModel{},
-		currentView:    ViewTaskManager, // or whichever view you want to start with
+		currentView:    ViewTaskManager,
 		tasks:          make([]data.Task, 0),
 		projects:       make(map[string]data.Project),
 		loading:        false,
+		service:        nil,
+	}
+}
+
+// NewAppModelWithService creates a new AppModel with an injected TaskService
+func NewAppModelWithService(svc service.TaskService) *AppModel {
+	return &AppModel{
+		taskManager:    &components.TaskManagerModel{},
+		projectManager: &components.ProjectManagerModel{},
+		currentView:    ViewTaskManager,
+		tasks:          make([]data.Task, 0),
+		projects:       make(map[string]data.Project),
+		loading:        false,
+		service:        svc,
 	}
 }
 
 func (a *AppModel) Init() tea.Cmd {
 	return func() tea.Msg {
 		a.loading = true
-		tasks, projects, err := data.LoadData(true)
-		if err != nil {
-			logs.Logger.Fatalf("ERROR: %s", err.Error())
-			if mismatchErr, ok := err.(*data.ParseTaskMismatchError); ok {
-				return ParseTaskMismatchMsg{Err: mismatchErr}
+
+		var tasks []data.Task
+		var projects map[string]data.Project
+		var err error
+
+		if a.service != nil {
+			// Use service if available
+			tasks, err = a.service.List()
+			if err != nil {
+				logs.Logger.Fatalf("ERROR: %s", err.Error())
+				return err
 			}
-			return err // generic error message
+			projects = a.service.GetProjects()
+		} else {
+			// Fallback to direct data loading (legacy)
+			tasks, projects, err = data.LoadData(true)
+			if err != nil {
+				logs.Logger.Fatalf("ERROR: %s", err.Error())
+				if mismatchErr, ok := err.(*data.ParseTaskMismatchError); ok {
+					return ParseTaskMismatchMsg{Err: mismatchErr}
+				}
+				return err
+			}
 		}
 		return DataLoadedMsg{tasks, projects}
 	}
@@ -77,8 +110,6 @@ func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case ParseTaskMismatchMsg:
-		// Handle the mismatch error here
-		// For example, push a new error screen or print a message
 		logs.Logger.Println("Parse Mismatch detected, must resolve")
 		return a, tea.Printf("⚠️ Parse mismatch: %v", msg.Err)
 
@@ -86,6 +117,16 @@ func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.loading {
 			return a, nil
 		}
+
+		// Check if task manager is in a modal state (editor, picker, input, or non-normal mode)
+		// If so, pass keys to task manager first
+		if tm, ok := a.taskManager.(*components.TaskManagerModel); ok && tm.IsInModalState() {
+			var cmd tea.Cmd
+			a.taskManager, cmd = a.taskManager.Update(msg)
+			return a, cmd
+		}
+
+		// Global keys only when not in modal state
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return a, tea.Quit
@@ -101,12 +142,25 @@ func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case components.TaskUpdateMsg:
-		// Update the task in a.tasks
-		data.UpdateTask(a.tasks, msg.Task)
-
-		// Block input while loading
+		// Update the task using service or data layer
 		a.loading = true
-		// Write to disk and then reload data in a Cmd
+
+		if a.service != nil {
+			return a, func() tea.Msg {
+				err := a.service.Update(msg.Task)
+				if err != nil {
+					return tea.Printf("Error updating task: %v", err)
+				}
+				tasks, err := a.service.List()
+				if err != nil {
+					return tea.Printf("Error loading tasks: %v", err)
+				}
+				return DataLoadedMsg{tasks, a.service.GetProjects()}
+			}
+		}
+
+		// Legacy path without service
+		data.UpdateTask(a.tasks, msg.Task)
 		return a, func() tea.Msg {
 			err := data.WriteData(a.tasks)
 			if err != nil {
@@ -118,7 +172,6 @@ func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return DataLoadedMsg{tasks, projects}
 		}
-
 	}
 
 	var cmd tea.Cmd

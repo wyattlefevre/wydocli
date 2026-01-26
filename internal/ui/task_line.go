@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/lipgloss"
 	"github.com/wyattlefevre/wydocli/internal/data"
 )
@@ -11,71 +13,66 @@ var (
 	projectStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
 	contextStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
 	tagStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	nameStyle     = lipgloss.NewStyle().Bold(true)
-	dateStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
+	nameStyle     = lipgloss.NewStyle()
+	dateStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
 )
 
+// StyledTaskLine renders a task in a simple, readable format.
+// Format: [x] (A) Name +project @context due:date
 func StyledTaskLine(t data.Task) string {
-	taskLine := []string{}
+	var parts []string
+
+	// Status checkbox
 	if t.Done {
-		return renderDone(t)
+		parts = append(parts, doneStyle.Render("[x]"))
+	} else {
+		parts = append(parts, "[ ]")
 	}
-	taskLine = append(taskLine, doneStyle.Render("[ ] "))
 
+	// Priority
 	if t.Priority != 0 {
-		taskLine = append(taskLine, priorityStyle.Render("("+string(t.Priority)+")"))
+		if t.Done {
+			parts = append(parts, doneStyle.Render("("+string(t.Priority)+")"))
+		} else {
+			parts = append(parts, priorityStyle.Render("("+string(t.Priority)+")"))
+		}
 	}
-	if t.CreatedDate != "" {
-		taskLine = append(taskLine, dateStyle.Render(t.CreatedDate))
-	}
-	if t.CompletionDate != "" {
-		taskLine = append(taskLine, dateStyle.Render(t.CompletionDate))
-	}
+
+	// Name
 	if t.Name != "" {
-		taskLine = append(taskLine, nameStyle.Render(t.Name))
+		if t.Done {
+			parts = append(parts, doneStyle.Render(t.Name))
+		} else {
+			parts = append(parts, nameStyle.Render(t.Name))
+		}
 	}
+
+	// Projects
 	for _, p := range t.Projects {
-		taskLine = append(taskLine, projectStyle.Render("+"+p))
+		if t.Done {
+			parts = append(parts, doneStyle.Render("+"+p))
+		} else {
+			parts = append(parts, projectStyle.Render("+"+p))
+		}
 	}
+
+	// Contexts
 	for _, c := range t.Contexts {
-		taskLine = append(taskLine, contextStyle.Render("@"+c))
+		if t.Done {
+			parts = append(parts, doneStyle.Render("@"+c))
+		} else {
+			parts = append(parts, contextStyle.Render("@"+c))
+		}
 	}
+
+	// Tags (including due date)
 	for k, v := range t.Tags {
-		taskLine = append(taskLine, tagStyle.Render(k+":"+v))
+		if t.Done {
+			parts = append(parts, doneStyle.Render(k+":"+v))
+		} else {
+			parts = append(parts, tagStyle.Render(k+":"+v))
+		}
 	}
 
-	line := lipgloss.JoinHorizontal(lipgloss.Top, taskLine...)
-	return lipgloss.NewStyle().Padding(0, 1).Render(line)
-}
-
-func renderDone(t data.Task) string {
-	taskLine := []string{}
-	taskLine = append(taskLine, doneStyle.Render("[x] "))
-	if t.Priority != 0 {
-		taskLine = append(taskLine, doneStyle.Render("("+string(t.Priority)+")"))
-	}
-	if t.Priority != 0 {
-		taskLine = append(taskLine, doneStyle.Render("("+string(t.Priority)+")"))
-	}
-	if t.CreatedDate != "" {
-		taskLine = append(taskLine, doneStyle.Render(t.CreatedDate))
-	}
-	if t.CompletionDate != "" {
-		taskLine = append(taskLine, doneStyle.Render(t.CompletionDate))
-	}
-	if t.Name != "" {
-		taskLine = append(taskLine, doneStyle.Render(t.Name))
-	}
-	for _, p := range t.Projects {
-		taskLine = append(taskLine, doneStyle.Render("+"+p))
-	}
-	for _, c := range t.Contexts {
-		taskLine = append(taskLine, doneStyle.Render("@"+c))
-	}
-	for k, v := range t.Tags {
-		taskLine = append(taskLine, doneStyle.Render(k+":"+v))
-	}
-
-	line := lipgloss.JoinHorizontal(lipgloss.Top, taskLine...)
-	return lipgloss.NewStyle().Padding(0, 1).Render(line)
+	return strings.Join(parts, " ")
 }

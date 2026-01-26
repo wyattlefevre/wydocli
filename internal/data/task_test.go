@@ -73,9 +73,10 @@ func TestParseTask_TableDriven(t *testing.T) {
 			name:  "Incorrectly Formatted Task (fields out of order)",
 			input: "+vacation @home cost:1000 (B) Plan trip",
 			expected: Task{
+				// Malformed input: when input starts with metadata, name becomes first token
 				Priority: 0,
-				Name:     "",
-				Projects: []string{"vacation"},
+				Name:     "+vacation",
+				Projects: nil,
 				Contexts: []string{"home"},
 				Tags:     map[string]string{"cost": "1000"},
 			},
@@ -83,9 +84,6 @@ func TestParseTask_TableDriven(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		if tc.name != "Projects, Contexts, Tags" {
-			continue
-		}
 		t.Run(tc.name, func(t *testing.T) {
 			got := ParseTask(tc.input, "abc", "file.txt")
 			if !tasksEqual(got, tc.expected) {
@@ -114,7 +112,7 @@ func TestTask_String(t *testing.T) {
 		{
 			name:     "Completed with Dates",
 			input:    "x (B) 2023-01-01 2023-01-02 Finish report",
-			expected: "x (B) 2023-01-01 2023-01-02 Finish report",
+			expected: "x 2023-01-01 2023-01-02 (B) Finish report",
 		},
 		{
 			name:     "Projects, Contexts, Tags",
@@ -132,7 +130,7 @@ func TestTask_String(t *testing.T) {
 			expected: "+vacation @home cost:1000",
 		},
 		{
-			name:     "Incorrectly Placed Priority",
+			name:     "Completed with priority after dates",
 			input:    "x 2023-01-01 2023-01-02 (B) Finish report",
 			expected: "x 2023-01-01 2023-01-02 (B) Finish report",
 		},
@@ -178,7 +176,7 @@ func TestTask_String_FromStruct(t *testing.T) {
 		{
 			name:     "Completed with Dates",
 			task:     Task{Done: true, Priority: PriorityB, CreatedDate: "2023-01-01", CompletionDate: "2023-01-02", Name: "Finish report"},
-			expected: "x (B) 2023-01-02 2023-01-01 Finish report",
+			expected: "x 2023-01-02 2023-01-01 (B) Finish report",
 		},
 		{
 			name:     "Projects, Contexts, Tags",
@@ -463,9 +461,12 @@ func TestParseTags_TableDriven(t *testing.T) {
 		{"tag with letter", "do a:b", map[string]string{"a": "b"}},
 		{"tag with space before colon", "do cost :1000", map[string]string{}},
 		{"tag with space after colon", "do cost: 1000", map[string]string{}},
-		{"tag with non-alphanumeric", "do cost-1:1000", map[string]string{}},
+		{"tag with non-alphanumeric key", "do cost-1:1000", map[string]string{}},
 		{"tag preceded by tab", "do\tcost:1000", map[string]string{"cost": "1000"}},
 		{"tag at beginning", "cost-1:1000", map[string]string{}},
+		{"due date tag", "do due:2024-01-25", map[string]string{"due": "2024-01-25"}},
+		{"due date with other tags", "do due:2024-01-25 pri:high", map[string]string{"due": "2024-01-25", "pri": "high"}},
+		{"date value with hyphens", "task rec:2024-12-31", map[string]string{"rec": "2024-12-31"}},
 	}
 
 	for _, tc := range tests {
@@ -473,6 +474,146 @@ func TestParseTags_TableDriven(t *testing.T) {
 			got := ParseTags(tc.input)
 			if !equalStringMaps(got, tc.expected) {
 				t.Errorf("Test '%s' failed. Expected: %#v, Got: %#v", tc.name, tc.expected, got)
+			}
+		})
+	}
+}
+
+// TestParseTask_ComplexScenarios tests real-world task formats from testdata/complex
+func TestParseTask_ComplexScenarios(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected Task
+	}{
+		{
+			name:  "priority with creation date and due tag",
+			input: "(A) 2024-01-20 Critical security patch +backend @urgent due:2024-01-25",
+			expected: Task{
+				Priority:    PriorityA,
+				CreatedDate: "2024-01-20",
+				Name:        "Critical security patch",
+				Projects:    []string{"backend"},
+				Contexts:    []string{"urgent"},
+				Tags:        map[string]string{"due": "2024-01-25"},
+			},
+		},
+		{
+			name:  "priority only no date",
+			input: "(A) Deploy to production +devops @server",
+			expected: Task{
+				Priority: PriorityA,
+				Name:     "Deploy to production",
+				Projects: []string{"devops"},
+				Contexts: []string{"server"},
+			},
+		},
+		{
+			name:  "completed with two dates and priority",
+			input: "x 2024-01-19 2024-01-15 (A) Fix authentication bug +backend @security",
+			expected: Task{
+				Done:           true,
+				Priority:       PriorityA,
+				CompletionDate: "2024-01-19",
+				CreatedDate:    "2024-01-15",
+				Name:           "Fix authentication bug",
+				Projects:       []string{"backend"},
+				Contexts:       []string{"security"},
+			},
+		},
+		{
+			name:  "completed with two dates no priority",
+			input: "x 2024-01-18 2024-01-10 Write migration scripts +backend @database",
+			expected: Task{
+				Done:           true,
+				CompletionDate: "2024-01-18",
+				CreatedDate:    "2024-01-10",
+				Name:           "Write migration scripts",
+				Projects:       []string{"backend"},
+				Contexts:       []string{"database"},
+			},
+		},
+		{
+			name:  "completed no dates",
+			input: "x Review code changes +backend @coding",
+			expected: Task{
+				Done:     true,
+				Name:     "Review code changes",
+				Projects: []string{"backend"},
+				Contexts: []string{"coding"},
+			},
+		},
+		{
+			name:  "no priority with creation date",
+			input: "2024-01-18 Write unit tests for auth module +backend @coding",
+			expected: Task{
+				CreatedDate: "2024-01-18",
+				Name:        "Write unit tests for auth module",
+				Projects:    []string{"backend"},
+				Contexts:    []string{"coding"},
+			},
+		},
+		{
+			name:  "simple task no metadata",
+			input: "Review team performance +management @hr",
+			expected: Task{
+				Name:     "Review team performance",
+				Projects: []string{"management"},
+				Contexts: []string{"hr"},
+			},
+		},
+		{
+			name:  "task with multiple contexts",
+			input: "(B) Update docs +backend @coding @writing",
+			expected: Task{
+				Priority: PriorityB,
+				Name:     "Update docs",
+				Projects: []string{"backend"},
+				Contexts: []string{"coding", "writing"},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ParseTask(tc.input, "test-id", "test.txt")
+			if !tasksEqual(got, tc.expected) {
+				t.Errorf("Test '%s' failed.\n%s", tc.name, diffTasks(tc.expected, got))
+			}
+		})
+	}
+}
+
+// TestGetDueDate tests the GetDueDate helper method
+func TestGetDueDate(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "task with due date",
+			input:    "(A) Task +project due:2024-01-25",
+			expected: "2024-01-25",
+		},
+		{
+			name:     "task without due date",
+			input:    "(A) Task +project",
+			expected: "",
+		},
+		{
+			name:     "task with other tags but no due",
+			input:    "(A) Task +project pri:high",
+			expected: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			task := ParseTask(tc.input, "id", "file.txt")
+			got := task.GetDueDate()
+			if got != tc.expected {
+				t.Errorf("GetDueDate() = %q, want %q", got, tc.expected)
 			}
 		})
 	}

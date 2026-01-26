@@ -1,156 +1,723 @@
 package components
 
 import (
+	"strings"
+
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/wyattlefevre/wydocli/internal/data"
 	"github.com/wyattlefevre/wydocli/internal/ui"
 	"github.com/wyattlefevre/wydocli/logs"
 )
 
-type InputMode int
-
-const (
-	NormalInputMode InputMode = iota
-	FilterInputMode
-	GroupInputMode
-	SortInputMode
-	SearchInputMode
+var (
+	groupHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("5")).MarginTop(1)
+	cursorStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 )
 
-type GroupMode int
-
-const (
-	GroupNone GroupMode = iota
-	GroupProject
-	GroupDate
-	GroupPriority
-)
-
-type SortMode int
-
-const (
-	SortNone SortMode = iota
-	SortProject
-	SortDate
-	SortPriority
-)
-
-type TaskManagerModel struct {
-	tasks        []data.Task
-	displayTasks []data.Task
-	cursor       int
-	inputMode    InputMode
-
-	searchStr     string
-	projectFilter string
-	dateFilter    string
-	groupMode     GroupMode
-	sortMode      SortMode
-}
-
+// TaskUpdateMsg is sent when a task is updated
 type TaskUpdateMsg struct {
 	Task data.Task
 }
 
+// TaskEditorOpenMsg is sent to open the task editor
+type TaskEditorOpenMsg struct {
+	Task *data.Task
+}
+
+// TaskManagerModel manages the task list view with filtering, sorting, and grouping
+type TaskManagerModel struct {
+	// Data
+	tasks        []data.Task
+	displayTasks []data.Task
+	taskGroups   []TaskGroup
+
+	// Navigation
+	cursor int
+
+	// State
+	inputContext InputModeContext
+	filterState  FilterState
+	sortState    SortState
+	groupState   GroupState
+
+	// Sub-components
+	infoBar     InfoBarModel
+	fuzzyPicker *FuzzyPickerModel
+	textInput   *TextInputModel
+	taskEditor  *TaskEditorModel
+
+	// Inline search
+	searchActive     bool
+	searchFilterMode bool // true when actively typing in search filter
+	searchInput      textinput.Model
+
+	// Cached data for pickers
+	allProjects []string
+	allContexts []string
+	allFiles    []string
+
+	// Picker context (what are we picking for)
+	pickerContext string // "filter-project", "filter-context", "filter-file", etc.
+}
+
+// WithTasks sets the tasks and extracts metadata
 func (m *TaskManagerModel) WithTasks(tasks []data.Task) *TaskManagerModel {
 	m.tasks = tasks
+	m.allProjects = ExtractUniqueProjects(tasks)
+	m.allContexts = ExtractUniqueContexts(tasks)
+	m.allFiles = ExtractUniqueFiles(tasks)
+	m.refreshDisplayTasks()
 	return m
 }
 
+// Init implements tea.Model
 func (m *TaskManagerModel) Init() tea.Cmd {
+	m.inputContext = NewInputModeContext()
+	m.filterState = NewFilterState()
+	m.sortState = NewSortState()
+	m.groupState = NewGroupState()
+	m.infoBar = NewInfoBar()
 	return nil
 }
 
+// Update implements tea.Model
 func (m *TaskManagerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle sub-component results first
+	switch msg := msg.(type) {
+	case FuzzyPickerResultMsg:
+		// If task editor has its own fuzzy picker, forward to it
+		if m.taskEditor != nil && m.taskEditor.fuzzyPicker != nil {
+			_, cmd := m.taskEditor.Update(msg)
+			return m, cmd
+		}
+		return m.handlePickerResult(msg)
+	case TextInputResultMsg:
+		// If task editor has its own text input, forward to it
+		if m.taskEditor != nil && m.taskEditor.textInput != nil {
+			_, cmd := m.taskEditor.Update(msg)
+			return m, cmd
+		}
+		return m.handleTextInputResult(msg)
+	case TaskEditorResultMsg:
+		return m.handleEditorResult(msg)
+	}
+
+	// Handle inline search mode (before other sub-components)
+	if m.searchActive {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			return m.handleSearchMode(msg)
+		default:
+			// Forward non-key messages (like blink) to searchInput
+			var cmd tea.Cmd
+			m.searchInput, cmd = m.searchInput.Update(msg)
+			return m, cmd
+		}
+	}
+
+	// Handle sub-component updates
+	if m.fuzzyPicker != nil {
+		var cmd tea.Cmd
+		_, cmd = m.fuzzyPicker.Update(msg)
+		return m, cmd
+	}
+	if m.textInput != nil {
+		var cmd tea.Cmd
+		_, cmd = m.textInput.Update(msg)
+		return m, cmd
+	}
+	if m.taskEditor != nil {
+		var cmd tea.Cmd
+		_, cmd = m.taskEditor.Update(msg)
+		return m, cmd
+	}
+
+	// Handle key messages based on mode
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.String() == "esc" {
-			m.inputMode = NormalInputMode
-			return m, nil
+			return m.handleEscape()
 		}
-		switch m.inputMode {
-		case NormalInputMode:
-			return m.handleNormalInput(msg.String())
-		case FilterInputMode:
-			return m.handleFilterInput(msg.String())
+
+		switch m.inputContext.Mode {
+		case ModeNormal:
+			return m.handleNormalMode(msg)
+		case ModeFilterSelect:
+			return m.handleFilterSelect(msg)
+		case ModeSortSelect:
+			return m.handleSortSelect(msg)
+		case ModeGroupSelect:
+			return m.handleGroupSelect(msg)
+		case ModeSortDirection:
+			return m.handleSortDirection(msg)
+		case ModeGroupDirection:
+			return m.handleGroupDirection(msg)
 		}
+	}
+
+	return m, nil
+}
+
+// View implements tea.Model
+func (m *TaskManagerModel) View() string {
+	var b strings.Builder
+
+	// Update info bar with current state
+	m.infoBar.SetContext(&m.inputContext, &m.filterState, &m.sortState, &m.groupState, m.filterState.SearchQuery)
+
+	// Info bar (always visible)
+	b.WriteString(m.infoBar.View())
+	b.WriteString("\n\n")
+
+	// Sub-component overlays (except search - which is inline)
+	if m.fuzzyPicker != nil {
+		b.WriteString(m.fuzzyPicker.View())
+		return b.String()
+	}
+	if m.textInput != nil {
+		b.WriteString(m.textInput.View())
+		return b.String()
+	}
+	if m.taskEditor != nil {
+		b.WriteString(m.taskEditor.View())
+		return b.String()
+	}
+
+	// Inline search line (when active)
+	if m.searchActive {
+		searchLine := searchStyle.Render("/") + m.searchInput.View()
+		b.WriteString(searchLine)
+		// Show mode-appropriate help
+		var help string
+		if m.searchFilterMode {
+			help = "  [enter] done  [esc] clear"
+		} else {
+			if m.filterState.SearchQuery != "" {
+				help = "  [/] filter  [j/k] navigate  [enter] done  [esc] clear"
+			} else {
+				help = "  [/] filter  [j/k] navigate  [enter] done  [esc] cancel"
+			}
+		}
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(help))
+		b.WriteString("\n")
+	}
+
+	// Task list
+	if m.groupState.IsActive() && len(m.taskGroups) > 0 {
+		b.WriteString(m.renderGroupedTasks())
+	} else {
+		b.WriteString(m.renderFlatTasks())
+	}
+
+	return b.String()
+}
+
+func (m *TaskManagerModel) renderFlatTasks() string {
+	var b strings.Builder
+
+	if len(m.displayTasks) == 0 {
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("No tasks found."))
+		return b.String()
+	}
+
+	for i, task := range m.displayTasks {
+		prefix := "  "
+		if i == m.cursor {
+			prefix = cursorStyle.Render("> ")
+		}
+		b.WriteString(prefix + ui.StyledTaskLine(task) + "\n")
+	}
+
+	return b.String()
+}
+
+func (m *TaskManagerModel) renderGroupedTasks() string {
+	var b strings.Builder
+
+	taskIndex := 0
+	for _, group := range m.taskGroups {
+		// Group header
+		b.WriteString(groupHeaderStyle.Render("── " + group.Label + " ──"))
+		b.WriteString("\n")
+
+		for _, task := range group.Tasks {
+			prefix := "  "
+			if taskIndex == m.cursor {
+				prefix = cursorStyle.Render("> ")
+			}
+			b.WriteString(prefix + ui.StyledTaskLine(task) + "\n")
+			taskIndex++
+		}
+	}
+
+	return b.String()
+}
+
+// Input handlers
+
+func (m *TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "j", "down":
+		m.moveCursor(1)
+	case "k", "up":
+		m.moveCursor(-1)
+	case "enter":
+		return m.openTaskEditor()
+	case "f":
+		m.inputContext.TransitionTo(ModeFilterSelect)
+		m.inputContext.Category = "filter"
+	case "s":
+		m.inputContext.TransitionTo(ModeSortSelect)
+		m.inputContext.Category = "sort"
+	case "g":
+		m.inputContext.TransitionTo(ModeGroupSelect)
+		m.inputContext.Category = "group"
+	case "/":
+		return m.startSearch()
+	case " ":
+		return m.toggleTaskDone()
 	}
 	return m, nil
 }
 
-func (m *TaskManagerModel) View() string {
-	var out string
-	out += modeLine(m.inputMode)
-	for i, task := range m.tasks {
-		prefix := " "
-		if i == m.cursor {
-			prefix = "> "
-		}
-		out += prefix + ui.StyledTaskLine(task) + "\n"
+func (m *TaskManagerModel) handleFilterSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "/":
+		return m.startSearch()
+	case "d":
+		return m.startDateFilter()
+	case "p":
+		return m.startProjectFilter()
+	case "P":
+		m.cyclePriorityFilter()
+		m.inputContext.Reset()
+	case "t", "c":
+		return m.startContextFilter()
+	case "s":
+		m.filterState.CycleStatusFilter()
+		m.refreshDisplayTasks()
+		m.inputContext.Reset()
+	case "f":
+		return m.startFileFilter()
 	}
-	return out
+	return m, nil
 }
 
-func modeLine(mode InputMode) string {
-	out := ""
-	switch mode {
-	case NormalInputMode:
-		return out + "[Normal]\n"
-	case FilterInputMode:
-		return out + "[Filter]\n"
-	case GroupInputMode:
-		return out + "[Group]\n"
-	case SortInputMode:
-		return out + "[Sort]\n"
-	case SearchInputMode:
-		return out + "[Search]\n"
+func (m *TaskManagerModel) handleSortSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "d":
+		m.inputContext.Field = "date"
+		m.inputContext.TransitionTo(ModeSortDirection)
+	case "p":
+		m.inputContext.Field = "project"
+		m.inputContext.TransitionTo(ModeSortDirection)
+	case "P":
+		m.inputContext.Field = "priority"
+		m.inputContext.TransitionTo(ModeSortDirection)
+	case "t", "c":
+		m.inputContext.Field = "context"
+		m.inputContext.TransitionTo(ModeSortDirection)
 	}
-	return "MODE ERR"
+	return m, nil
+}
+
+func (m *TaskManagerModel) handleGroupSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "d":
+		m.inputContext.Field = "date"
+		m.inputContext.TransitionTo(ModeGroupDirection)
+	case "p":
+		m.inputContext.Field = "project"
+		m.inputContext.TransitionTo(ModeGroupDirection)
+	case "P":
+		m.inputContext.Field = "priority"
+		m.inputContext.TransitionTo(ModeGroupDirection)
+	case "t", "c":
+		m.inputContext.Field = "context"
+		m.inputContext.TransitionTo(ModeGroupDirection)
+	case "f":
+		m.inputContext.Field = "file"
+		m.inputContext.TransitionTo(ModeGroupDirection)
+	}
+	return m, nil
+}
+
+func (m *TaskManagerModel) handleSortDirection(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "a":
+		m.applySortField(true)
+	case "d":
+		m.applySortField(false)
+	}
+	return m, nil
+}
+
+func (m *TaskManagerModel) handleGroupDirection(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "a":
+		m.applyGroupField(true)
+	case "d":
+		m.applyGroupField(false)
+	}
+	return m, nil
+}
+
+func (m *TaskManagerModel) handleSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle filter typing mode
+	if m.searchFilterMode {
+		switch msg.String() {
+		case "enter":
+			// Exit filter mode, keep query, stay in search mode
+			m.searchFilterMode = false
+			m.searchInput.Blur()
+			return m, nil
+
+		case "esc":
+			// Clear query, exit filter mode, stay in search mode
+			m.searchInput.SetValue("")
+			m.filterState.SearchQuery = ""
+			m.searchFilterMode = false
+			m.searchInput.Blur()
+			m.refreshDisplayTasks()
+			return m, nil
+
+		default:
+			// Forward all keys to textinput (including j/k)
+			var cmd tea.Cmd
+			m.searchInput, cmd = m.searchInput.Update(msg)
+			// Live filter on every keystroke
+			m.filterState.SearchQuery = m.searchInput.Value()
+			m.refreshDisplayTasks()
+			return m, cmd
+		}
+	}
+
+	// Navigation mode (not typing in filter)
+	switch msg.String() {
+	case "/":
+		// Re-enter filter typing mode
+		m.searchFilterMode = true
+		return m, m.searchInput.Focus()
+
+	case "enter":
+		// Confirm search: exit search mode entirely
+		m.searchActive = false
+		m.searchFilterMode = false
+		m.inputContext.Reset()
+		return m, nil
+
+	case "esc":
+		// If query exists, clear it; otherwise exit search mode
+		if m.filterState.SearchQuery != "" {
+			m.searchInput.SetValue("")
+			m.filterState.SearchQuery = ""
+			m.refreshDisplayTasks()
+			return m, nil
+		}
+		// Exit search mode
+		m.searchActive = false
+		m.searchFilterMode = false
+		m.inputContext.Reset()
+		return m, nil
+
+	case "up", "k":
+		m.moveCursor(-1)
+		return m, nil
+
+	case "down", "j":
+		m.moveCursor(1)
+		return m, nil
+
+	case " ":
+		// Allow toggling tasks while in search navigation mode
+		return m.toggleTaskDone()
+	}
+
+	return m, nil
+}
+
+func (m *TaskManagerModel) handleEscape() (tea.Model, tea.Cmd) {
+	// Close any open sub-component
+	if m.fuzzyPicker != nil {
+		m.fuzzyPicker = nil
+		m.inputContext.Reset()
+		return m, nil
+	}
+	if m.textInput != nil {
+		m.textInput = nil
+		m.inputContext.Reset()
+		return m, nil
+	}
+	if m.taskEditor != nil {
+		m.taskEditor = nil
+		m.inputContext.Reset()
+		return m, nil
+	}
+
+	// Go back or reset
+	if m.inputContext.Mode != ModeNormal {
+		m.inputContext.Back()
+		if m.inputContext.Mode == ModeNormal {
+			m.inputContext.Reset()
+		}
+		return m, nil
+	}
+
+	// In normal mode, clear filters
+	m.filterState.Reset()
+	m.sortState.Reset()
+	m.groupState.Reset()
+	m.refreshDisplayTasks()
+	return m, nil
+}
+
+// Actions
+
+func (m *TaskManagerModel) startSearch() (tea.Model, tea.Cmd) {
+	// Use inline search mode with lightweight textinput
+	m.searchInput = textinput.New()
+	m.searchInput.Placeholder = "type to filter..."
+	m.searchInput.CharLimit = 256
+	m.searchInput.Width = 40
+	m.searchInput.SetValue(m.filterState.SearchQuery)
+	m.searchActive = true
+	m.searchFilterMode = true // Start in filter typing mode
+	m.inputContext.TransitionTo(ModeSearch)
+	return m, m.searchInput.Focus()
+}
+
+func (m *TaskManagerModel) startDateFilter() (tea.Model, tea.Cmd) {
+	m.textInput = NewDateInput("Due date filter")
+	m.inputContext.TransitionTo(ModeDateInput)
+	return m, m.textInput.Focus()
+}
+
+func (m *TaskManagerModel) startProjectFilter() (tea.Model, tea.Cmd) {
+	m.fuzzyPicker = NewFuzzyPicker(m.allProjects, "Filter by Project", true, false)
+	m.fuzzyPicker.PreSelect(m.filterState.ProjectFilter)
+	m.pickerContext = "filter-project"
+	m.inputContext.TransitionTo(ModeFuzzyPicker)
+	return m, nil
+}
+
+func (m *TaskManagerModel) startContextFilter() (tea.Model, tea.Cmd) {
+	m.fuzzyPicker = NewFuzzyPicker(m.allContexts, "Filter by Context", true, false)
+	m.fuzzyPicker.PreSelect(m.filterState.ContextFilter)
+	m.pickerContext = "filter-context"
+	m.inputContext.TransitionTo(ModeFuzzyPicker)
+	return m, nil
+}
+
+func (m *TaskManagerModel) startFileFilter() (tea.Model, tea.Cmd) {
+	m.fuzzyPicker = NewFuzzyPicker(m.allFiles, "Filter by File", true, false)
+	m.fuzzyPicker.PreSelect(m.filterState.FileFilter)
+	m.pickerContext = "filter-file"
+	m.inputContext.TransitionTo(ModeFuzzyPicker)
+	return m, nil
+}
+
+func (m *TaskManagerModel) cyclePriorityFilter() {
+	priorities := []data.Priority{
+		data.PriorityA, data.PriorityB, data.PriorityC,
+		data.PriorityD, data.PriorityE, data.PriorityF,
+	}
+
+	if len(m.filterState.PriorityFilter) == 0 {
+		m.filterState.PriorityFilter = []data.Priority{data.PriorityA}
+	} else {
+		current := m.filterState.PriorityFilter[0]
+		nextIdx := -1
+		for i, p := range priorities {
+			if p == current {
+				nextIdx = i + 1
+				break
+			}
+		}
+		if nextIdx >= len(priorities) {
+			m.filterState.PriorityFilter = nil
+		} else {
+			m.filterState.PriorityFilter = []data.Priority{priorities[nextIdx]}
+		}
+	}
+	m.refreshDisplayTasks()
+}
+
+func (m *TaskManagerModel) applySortField(ascending bool) {
+	var field SortField
+	switch m.inputContext.Field {
+	case "date":
+		field = SortByDueDate
+	case "project":
+		field = SortByProject
+	case "priority":
+		field = SortByPriority
+	case "context":
+		field = SortByContext
+	}
+
+	m.sortState.Field = field
+	m.sortState.Ascending = ascending
+	m.refreshDisplayTasks()
+	m.inputContext.Reset()
+}
+
+func (m *TaskManagerModel) applyGroupField(ascending bool) {
+	var field GroupField
+	switch m.inputContext.Field {
+	case "date":
+		field = GroupByDueDate
+	case "project":
+		field = GroupByProject
+	case "priority":
+		field = GroupByPriority
+	case "context":
+		field = GroupByContext
+	case "file":
+		field = GroupByFile
+	}
+
+	m.groupState.Field = field
+	m.groupState.Ascending = ascending
+	m.refreshDisplayTasks()
+	m.inputContext.Reset()
+}
+
+func (m *TaskManagerModel) openTaskEditor() (tea.Model, tea.Cmd) {
+	task := m.selectedTask()
+	if task == nil {
+		return m, nil
+	}
+
+	m.taskEditor = NewTaskEditor(task, m.allProjects, m.allContexts)
+	m.inputContext.TransitionTo(ModeTaskEditor)
+	return m, nil
+}
+
+func (m *TaskManagerModel) toggleTaskDone() (tea.Model, tea.Cmd) {
+	logs.Logger.Println("space pressed")
+	task := m.selectedTask()
+	if task == nil {
+		logs.Logger.Println("no selected task")
+		return m, nil
+	}
+
+	task.Done = !task.Done
+	return m, func() tea.Msg {
+		return TaskUpdateMsg{Task: *task}
+	}
+}
+
+// Result handlers
+
+func (m *TaskManagerModel) handlePickerResult(msg FuzzyPickerResultMsg) (tea.Model, tea.Cmd) {
+	m.fuzzyPicker = nil
+
+	if msg.Cancelled {
+		m.inputContext.Reset()
+		return m, nil
+	}
+
+	switch m.pickerContext {
+	case "filter-project":
+		m.filterState.ProjectFilter = msg.Selected
+	case "filter-context":
+		m.filterState.ContextFilter = msg.Selected
+	case "filter-file":
+		m.filterState.FileFilter = msg.Selected
+	}
+
+	m.refreshDisplayTasks()
+	m.inputContext.Reset()
+	m.pickerContext = ""
+	return m, nil
+}
+
+func (m *TaskManagerModel) handleTextInputResult(msg TextInputResultMsg) (tea.Model, tea.Cmd) {
+	m.textInput = nil
+
+	if msg.Cancelled {
+		m.inputContext.Reset()
+		return m, nil
+	}
+
+	if m.inputContext.Mode == ModeSearch {
+		m.filterState.SearchQuery = msg.Value
+		m.refreshDisplayTasks()
+	}
+
+	m.inputContext.Reset()
+	return m, nil
+}
+
+func (m *TaskManagerModel) handleEditorResult(msg TaskEditorResultMsg) (tea.Model, tea.Cmd) {
+	m.taskEditor = nil
+	m.inputContext.Reset()
+
+	if msg.Cancelled {
+		return m, nil
+	}
+
+	// Send update message
+	return m, func() tea.Msg {
+		return TaskUpdateMsg{Task: msg.Task}
+	}
+}
+
+// Helpers
+
+func (m *TaskManagerModel) refreshDisplayTasks() {
+	// Apply filters
+	filtered := ApplyFilters(m.tasks, m.filterState)
+
+	// Apply sort
+	sorted := ApplySort(filtered, m.sortState)
+
+	// Apply grouping
+	if m.groupState.IsActive() {
+		m.taskGroups = ApplyGroups(sorted, m.groupState)
+		// Flatten for cursor navigation
+		m.displayTasks = nil
+		for _, g := range m.taskGroups {
+			m.displayTasks = append(m.displayTasks, g.Tasks...)
+		}
+	} else {
+		m.displayTasks = sorted
+		m.taskGroups = nil
+	}
+
+	// Clamp cursor
+	if m.cursor >= len(m.displayTasks) {
+		m.cursor = len(m.displayTasks) - 1
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+}
+
+func (m *TaskManagerModel) moveCursor(delta int) {
+	m.cursor += delta
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+	if m.cursor >= len(m.displayTasks) {
+		m.cursor = len(m.displayTasks) - 1
+	}
 }
 
 func (m *TaskManagerModel) selectedTask() *data.Task {
-	if m.cursor >= 0 && m.cursor < len(m.tasks) {
-		return &m.tasks[m.cursor]
+	if m.cursor >= 0 && m.cursor < len(m.displayTasks) {
+		return &m.displayTasks[m.cursor]
 	}
 	return nil
 }
 
-func (m *TaskManagerModel) handleFilterInput(key string) (tea.Model, tea.Cmd) {
-	return m, nil
-}
-
-func (m *TaskManagerModel) handleNormalInput(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "j", "down":
-		if m.cursor < len(m.tasks)-1 {
-			m.cursor++
-		}
-	case "k", "up":
-		if m.cursor > 0 {
-			m.cursor--
-		}
-	case " ":
-		logs.Logger.Println("space pressed")
-		return m, func() tea.Msg {
-			t := m.selectedTask()
-			if t == nil {
-				logs.Logger.Println("no selected task")
-				return nil
-			}
-			// toggle status
-			t.Done = !t.Done
-			return TaskUpdateMsg{
-				Task: *t,
-			}
-		}
-	case "f":
-		m.inputMode = FilterInputMode
-	case "g":
-		m.inputMode = GroupInputMode
-	case "s":
-		m.inputMode = SortInputMode
-	case "/":
-		m.inputMode = SearchInputMode
+// IsInModalState returns true if the task manager is in a mode that should
+// block global key handling (editor, picker, input, search, or any non-normal mode)
+func (m *TaskManagerModel) IsInModalState() bool {
+	if m.taskEditor != nil || m.fuzzyPicker != nil || m.textInput != nil || m.searchActive {
+		return true
 	}
-	return m, nil
+	return m.inputContext.Mode != ModeNormal
 }

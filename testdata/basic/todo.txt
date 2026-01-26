@@ -1,0 +1,4 @@
+(A) Buy groceries +home @errands
+(B) Review pull request +work @coding
+Call mom +personal
+Read chapter 5 +learning @reading

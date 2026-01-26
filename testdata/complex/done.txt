@@ -1,0 +1,5 @@
+x 2024-01-19 2024-01-15 (A) Fix authentication bug +backend @security
+x 2024-01-18 2024-01-10 Write migration scripts +backend @database
+x 2024-01-17 2024-01-12 Update dependencies +devops
+x Review code changes +backend @coding
+x Set up CI pipeline +devops @automation

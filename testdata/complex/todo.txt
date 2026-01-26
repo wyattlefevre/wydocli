@@ -1,0 +1,10 @@
+(A) 2024-01-20 Critical security patch +backend @urgent due:2024-01-25
+(B) Deploy to production +devops +docs +new @server due:2026-01-23
+(B) 2024-01-18 Write unit tests for auth module +backend @coding
+(B) Update API documentation +docs @writing
+(C) Refactor database queries +personal +learning +backend @optimization
+(C) Design new landing page +frontend @design
+(D) Research new frameworks +learning @research
+Review team performance +management @hr
+Set up monitoring alerts +devops @monitoring
+Organize team lunch +personal @social

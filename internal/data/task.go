@@ -31,7 +31,6 @@ type Task struct {
 	CompletionDate string
 	Priority       Priority
 	File           string
-	DueDate        string
 }
 
 func (t *Task) HasProject(project string) bool {
@@ -72,6 +71,14 @@ func (t *Task) RemoveContext(context string) {
 	}
 }
 
+func (t *Task) GetDueDate() string {
+	return t.Tags["due"]
+}
+
+func (t *Task) SetDueDate(date string) {
+	t.Tags["due"] = date
+}
+
 func (t Task) String() string {
 	var parts []string
 
@@ -80,8 +87,8 @@ func (t Task) String() string {
 		parts = append(parts, "x")
 	}
 
-	// Priority
-	if t.Priority != 0 {
+	// For non-completed tasks: priority comes before dates
+	if !t.Done && t.Priority != 0 {
 		parts = append(parts, "("+string(t.Priority)+")")
 	}
 
@@ -92,6 +99,11 @@ func (t Task) String() string {
 
 	if t.CreatedDate != "" {
 		parts = append(parts, t.CreatedDate)
+	}
+
+	// For completed tasks: priority comes after dates
+	if t.Done && t.Priority != 0 {
+		parts = append(parts, "("+string(t.Priority)+")")
 	}
 
 	// Name
@@ -137,56 +149,72 @@ func ParseTask(input string, id string, file string) Task {
 	t.ID = id
 	t.File = file
 
+	if len(input) == 0 {
+		return t
+	}
+
+	// Check for completion marker
 	if strings.HasPrefix(input, "x ") {
 		t.Done = true
 		input = input[2:]
 	}
 
+	// Check for priority (can appear here for both completed and non-completed tasks)
 	t.Priority = ParsePriority(input)
 	if t.Priority != PriorityNone {
-		input = input[3:]
-	}
-	fmt.Printf("input post priority: %s\n\n", input)
-
-	if input[0] == ' ' {
-		input = input[1:]
+		input = input[4:] // "(A) " = 4 chars
 	}
 
+	input = strings.TrimLeft(input, " ")
+
+	// Parse first date
 	firstDate := ""
-	secondDate := ""
-
 	if len(input) >= 10 {
 		firstDate = ParseDate(input[:10])
-		input = input[len(firstDate):]
+		if firstDate != "" {
+			input = input[10:]
+			input = strings.TrimLeft(input, " ")
+		}
 	}
 
-	if input[0] == ' ' {
-		input = input[1:]
-	}
-
+	// Parse second date (only if first date was found)
+	secondDate := ""
 	if firstDate != "" && len(input) >= 10 {
 		secondDate = ParseDate(input[:10])
-		input = input[len(secondDate):]
+		if secondDate != "" {
+			input = input[10:]
+			input = strings.TrimLeft(input, " ")
+		}
 	}
 
-	if input[0] == ' ' {
-		input = input[1:]
+	// For completed tasks, priority might come after dates (alternative format)
+	if t.Done && t.Priority == PriorityNone {
+		t.Priority = ParsePriority(input)
+		if t.Priority != PriorityNone {
+			input = input[4:] // "(A) " = 4 chars
+		}
 	}
 
+	// Assign dates based on completion status
 	if !t.Done && firstDate != "" {
 		t.CreatedDate = firstDate
 	}
-	if t.Done && firstDate != "" && secondDate != "" {
-		t.CompletionDate = firstDate
-		t.CreatedDate = secondDate
+	if t.Done {
+		if firstDate != "" && secondDate != "" {
+			t.CompletionDate = firstDate
+			t.CreatedDate = secondDate
+		} else if firstDate != "" {
+			t.CompletionDate = firstDate
+		}
 	}
 
-	if input[0] == ' ' {
-		input = input[1:]
+	input = strings.TrimLeft(input, " ")
+
+	if len(input) == 0 {
+		return t
 	}
 
-	fmt.Printf("input pre firstmeta call: %s\n\n", input)
-
+	// Find first metadata marker
 	firstMetaIdx := FirstMetaIndex(
 		FirstProjectIndex(input),
 		FirstContextIndex(input),
@@ -195,16 +223,10 @@ func ParseTask(input string, id string, file string) Task {
 
 	if firstMetaIdx < 0 {
 		t.Name = strings.TrimSpace(input)
-		// task has no metadata (project, context, tag)
 		return t
 	}
 
-	fmt.Printf("first meta idx: %d\n", firstMetaIdx)
-
-	fmt.Printf("input: %s\n", input)
 	t.Name = strings.TrimSpace(input[:firstMetaIdx])
-
-	fmt.Printf("set name %s\n", t.Name)
 
 	t.Projects = ParseProjects(input)
 	sort.Strings(t.Projects)
@@ -270,7 +292,7 @@ func ParseContexts(s string) []string {
 }
 
 func ParseTags(s string) map[string]string {
-	re := regexp.MustCompile(`[ \t]([A-Za-z0-9]+)\:([A-Za-z0-9]+)`)
+	re := regexp.MustCompile(`[ \t]([A-Za-z0-9]+)\:([A-Za-z0-9-]+)`)
 	matches := re.FindAllStringSubmatch(s, -1)
 	tags := make(map[string]string)
 	for _, m := range matches {

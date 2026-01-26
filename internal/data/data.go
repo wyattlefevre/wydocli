@@ -10,35 +10,27 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/wyattlefevre/wydocli/internal/config"
 	"github.com/wyattlefevre/wydocli/logs"
 )
 
 var (
-	todoDir = getEnv("TODO_DIR", defaultTodoDir())
-	projDir = getEnv("TODO_PROJ_DIR", filepath.Join(defaultTodoDir(), "todo_projects"))
-
-	todoFilePath = getEnv("TODO_FILE", filepath.Join(todoDir, "todo.txt"))
-	doneFilePath = getEnv("DONE_FILE", filepath.Join(todoDir, "done.txt"))
-
 	mu sync.RWMutex
 
 	projectMap map[string]Project
 )
 
-func getEnv(key, fallback string) string {
-	if val, ok := os.LookupEnv(key); ok && val != "" {
-		return val
-	}
-	return fallback
+// Path accessor functions that use the config package
+func getTodoFilePath() string {
+	return config.Get().GetTodoFile()
 }
 
-func defaultTodoDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		// fallback if home can’t be determined
-		return "."
-	}
-	return home
+func getDoneFilePath() string {
+	return config.Get().GetDoneFile()
+}
+
+func getProjDir() string {
+	return config.Get().GetProjDir()
 }
 
 func HashTaskLine(line string) string {
@@ -69,11 +61,17 @@ func LoadData(allowMismatch bool) ([]Task, map[string]Project, error) {
 	logs.Logger.Println("LoadData")
 	var err error
 
+	todoFilePath := getTodoFilePath()
+	doneFilePath := getDoneFilePath()
+
 	// Projects
 	projectMap = make(map[string]Project)
 	err = scanProjectFiles(projectMap)
 	if err != nil {
-		return nil, nil, err
+		// Don't fail if project dir doesn't exist
+		if !os.IsNotExist(err) {
+			return nil, nil, err
+		}
 	}
 
 	// Tasks
@@ -83,23 +81,41 @@ func LoadData(allowMismatch bool) ([]Task, map[string]Project, error) {
 		if _, ok := err.(*ParseTaskMismatchError); ok {
 			logs.Logger.Printf("ParseTaskMismatchError: %v\n", err)
 			return nil, nil, err
-		} 	
-		return nil, nil, fmt.Errorf("Error reading %s: %v", todoFilePath, err)
+		}
+		// Don't fail if todo.txt doesn't exist
+		if !os.IsNotExist(err) {
+			return nil, nil, fmt.Errorf("Error reading %s: %v", todoFilePath, err)
+		}
+		todoTasks = []Task{}
 	}
+
 	logs.Logger.Println("load done.txt")
 	doneTasks, err := loadTaskFile(doneFilePath, allowMismatch, projectMap)
 	if err != nil {
-		logs.Logger.Fatalf("Error reading file %v", err)
-		return nil, nil, fmt.Errorf("Error reading %s: %v", doneFilePath, err)
+		// Don't fail if done.txt doesn't exist
+		if !os.IsNotExist(err) {
+			logs.Logger.Fatalf("Error reading file %v", err)
+			return nil, nil, fmt.Errorf("Error reading %s: %v", doneFilePath, err)
+		}
+		doneTasks = []Task{}
 	}
+
 	allTasks := append(todoTasks, doneTasks...)
 	return allTasks, projectMap, nil
 }
 
 func WriteData(tasks []Task) error {
+	todoFilePath := getTodoFilePath()
+	doneFilePath := getDoneFilePath()
+
 	logs.Logger.Printf("WriteData (%d tasks)", len(tasks))
 	mu.Lock()
 	defer mu.Unlock()
+
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(todoFilePath), 0755); err != nil {
+		return fmt.Errorf("Error creating directory: %v", err)
+	}
 
 	// Write todo tasks
 	todoFile, err := os.Create(todoFilePath)
@@ -180,9 +196,10 @@ func TaskCount(tasks []Task, project string) (int, int) {
 }
 
 func ArchiveDone(tasks []Task) error {
-	for _, task := range tasks {
-		if task.Done {
-			task.File = doneFilePath
+	doneFilePath := getDoneFilePath()
+	for i := range tasks {
+		if tasks[i].Done {
+			tasks[i].File = doneFilePath
 		}
 	}
 	err := WriteData(tasks)
@@ -190,6 +207,7 @@ func ArchiveDone(tasks []Task) error {
 }
 
 func scanProjectFiles(projectMap map[string]Project) error {
+	projDir := getProjDir()
 	return filepath.Walk(projDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -259,4 +277,77 @@ func loadTaskFile(filePath string, allowMismatch bool, projects map[string]Proje
 		return nil, err
 	}
 	return taskList, nil
+}
+
+// DeleteTask removes a task by ID from the task slice and returns the updated slice.
+func DeleteTask(tasks []Task, id string) []Task {
+	for i, t := range tasks {
+		if t.ID == id {
+			return append(tasks[:i], tasks[i+1:]...)
+		}
+	}
+	return tasks
+}
+
+// AppendTask appends a single task line to the todo.txt file efficiently.
+// It parses the line, assigns an ID, and returns the created Task.
+func AppendTask(rawLine string) (*Task, error) {
+	todoFilePath := getTodoFilePath()
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	rawLine = strings.TrimSpace(rawLine)
+	if rawLine == "" {
+		return nil, fmt.Errorf("empty task line")
+	}
+
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(todoFilePath), 0755); err != nil {
+		return nil, fmt.Errorf("error creating directory: %v", err)
+	}
+
+	// Count existing lines to generate a unique ID
+	lineCount := 0
+	file, err := os.Open(todoFilePath)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("error opening %s: %v", todoFilePath, err)
+	}
+	if file != nil {
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			if strings.TrimSpace(scanner.Text()) != "" {
+				lineCount++
+			}
+		}
+		file.Close()
+	}
+
+	// Generate ID for the new task
+	hashId := HashTaskLine(fmt.Sprintf("%d:%s", lineCount+1, todoFilePath))
+	task := ParseTask(rawLine, hashId, todoFilePath)
+
+	// Append to file
+	f, err := os.OpenFile(todoFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("error opening %s for append: %v", todoFilePath, err)
+	}
+	defer f.Close()
+
+	_, err = fmt.Fprintln(f, task.String())
+	if err != nil {
+		return nil, fmt.Errorf("error writing to %s: %v", todoFilePath, err)
+	}
+
+	return &task, nil
+}
+
+// GetTodoFilePath returns the configured path to todo.txt
+func GetTodoFilePath() string {
+	return getTodoFilePath()
+}
+
+// GetDoneFilePath returns the configured path to done.txt
+func GetDoneFilePath() string {
+	return getDoneFilePath()
 }
