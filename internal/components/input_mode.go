@@ -25,6 +25,9 @@ const (
 	ModeEditDueDate // 'd' in editor - date input
 	ModeEditContext // 't'/'c' in editor - context picker
 	ModeEditProject // 'p' in editor - project picker
+
+	// Confirmation mode
+	ModeConfirmation // confirmation modal (e.g., archive)
 )
 
 // InputModeContext holds the current mode and related context
@@ -118,6 +121,8 @@ func (c *InputModeContext) String() string {
 		return "Edit Context"
 	case ModeEditProject:
 		return "Edit Project"
+	case ModeConfirmation:
+		return "Confirmation"
 	default:
 		return "Unknown"
 	}

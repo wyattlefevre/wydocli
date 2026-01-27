@@ -23,6 +23,7 @@ type InfoBarModel struct {
 	SearchQuery  string
 	Message      string
 	Width        int
+	FileViewMode FileViewMode
 }
 
 // NewInfoBar creates a new info bar
@@ -33,12 +34,13 @@ func NewInfoBar() InfoBarModel {
 }
 
 // SetContext updates the info bar with current state
-func (m *InfoBarModel) SetContext(ctx *InputModeContext, filter *FilterState, sortState *SortState, groupState *GroupState, searchQuery string) {
+func (m *InfoBarModel) SetContext(ctx *InputModeContext, filter *FilterState, sortState *SortState, groupState *GroupState, searchQuery string, fileViewMode FileViewMode) {
 	m.InputContext = ctx
 	m.FilterState = filter
 	m.SortState = sortState
 	m.GroupState = groupState
 	m.SearchQuery = searchQuery
+	m.FileViewMode = fileViewMode
 }
 
 // SetMessage sets a temporary message
@@ -74,7 +76,7 @@ func (m *InfoBarModel) renderModeLine() string {
 
 	if m.InputContext == nil {
 		mode = modeStyle.Render("[Normal]")
-		hints = hintStyle.Render("f:filter  s:sort  g:group  /:search  enter:edit  space:toggle  q:quit")
+		hints = hintStyle.Render("f:filter  s:sort  g:group  /:search  F:toggle-file  A:archive  enter:edit  space:toggle  q:quit")
 	} else {
 		mode = modeStyle.Render("[" + m.InputContext.String() + "]")
 		hints = m.getHintsForMode()
@@ -90,7 +92,7 @@ func (m *InfoBarModel) getHintsForMode() string {
 
 	switch m.InputContext.Mode {
 	case ModeNormal:
-		return hintStyle.Render("f:filter  s:sort  g:group  /:search  enter:edit  space:toggle")
+		return hintStyle.Render("f:filter  s:sort  g:group  /:search  F:toggle-file  A:archive  enter:edit  space:toggle")
 
 	case ModeFilterSelect:
 		return hintStyle.Render("/:search  d:date  p:project  P:priority  t:context  s:status  f:file  esc:back")
@@ -121,6 +123,9 @@ func (m *InfoBarModel) getHintsForMode() string {
 
 	case ModeEditProject, ModeEditContext:
 		return hintStyle.Render("j/k:navigate  enter:select  space:toggle  esc:cancel")
+
+	case ModeConfirmation:
+		return hintStyle.Render("y/enter:yes  n/esc:no")
 	}
 
 	return ""
@@ -142,6 +147,19 @@ func (m *InfoBarModel) renderFiltersLine() string {
 	// Group summary
 	if m.GroupState != nil && m.GroupState.IsActive() {
 		parts = append(parts, filterStyle.Render("Group: "+m.GroupState.String()))
+	}
+
+	// File view mode
+	if m.FileViewMode != FileViewAll {
+		var viewMode string
+		if m.FileViewMode == FileViewTodoOnly {
+			viewMode = "View: todo.txt"
+		} else {
+			viewMode = "View: done.txt"
+		}
+		parts = append(parts, lipgloss.NewStyle().
+			Foreground(lipgloss.Color("6")).
+			Render(viewMode))
 	}
 
 	if len(parts) == 0 {

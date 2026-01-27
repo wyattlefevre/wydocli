@@ -137,7 +137,20 @@ func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.currentView = ViewTaskManager
 			return a, nil
 		case "F":
-			// TODO implement file view
+			// Shift+F - Toggle file view
+			if _, ok := a.taskManager.(*components.TaskManagerModel); ok {
+				return a, func() tea.Msg {
+					return components.ToggleFileViewMsg{}
+				}
+			}
+			return a, nil
+		case "A":
+			// Shift+A - Archive completed tasks
+			if _, ok := a.taskManager.(*components.TaskManagerModel); ok {
+				return a, func() tea.Msg {
+					return components.StartArchiveMsg{}
+				}
+			}
 			return a, nil
 		}
 
@@ -172,6 +185,47 @@ func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return DataLoadedMsg{tasks, projects}
 		}
+
+	case components.ArchiveRequestMsg:
+		a.loading = true
+		count := msg.Count
+		return a, func() tea.Msg {
+			if a.service != nil {
+				err := a.service.Archive()
+				if err != nil {
+					return tea.Printf("Error archiving: %v", err)
+				}
+				tasks, err := a.service.List()
+				if err != nil {
+					return tea.Printf("Error loading: %v", err)
+				}
+				a.tasks = tasks
+				return components.ArchiveCompleteMsg{Count: count}
+			}
+
+			// Legacy path without service
+			err := data.ArchiveDone(a.tasks)
+			if err != nil {
+				return tea.Printf("Error archiving: %v", err)
+			}
+			tasks, projects, err := data.LoadData(false)
+			if err != nil {
+				return tea.Printf("Error loading: %v", err)
+			}
+			a.tasks = tasks
+			a.projects = projects
+			return components.ArchiveCompleteMsg{Count: count}
+		}
+
+	case components.ArchiveCompleteMsg:
+		a.loading = false
+		if tm, ok := a.taskManager.(*components.TaskManagerModel); ok {
+			a.taskManager = tm.WithTasks(a.tasks)
+		}
+		// Forward message to task manager for success display
+		var cmd tea.Cmd
+		a.taskManager, cmd = a.taskManager.Update(msg)
+		return a, cmd
 	}
 
 	var cmd tea.Cmd

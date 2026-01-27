@@ -1,6 +1,7 @@
 package components
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -16,6 +17,15 @@ var (
 	cursorStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 )
 
+// FileViewMode determines which file(s) to display tasks from
+type FileViewMode int
+
+const (
+	FileViewAll FileViewMode = iota
+	FileViewTodoOnly
+	FileViewDoneOnly
+)
+
 // TaskUpdateMsg is sent when a task is updated
 type TaskUpdateMsg struct {
 	Task data.Task
@@ -24,6 +34,22 @@ type TaskUpdateMsg struct {
 // TaskEditorOpenMsg is sent to open the task editor
 type TaskEditorOpenMsg struct {
 	Task *data.Task
+}
+
+// ToggleFileViewMsg is sent to cycle file view mode
+type ToggleFileViewMsg struct{}
+
+// StartArchiveMsg is sent to start the archive flow
+type StartArchiveMsg struct{}
+
+// ArchiveRequestMsg is sent to request archiving tasks
+type ArchiveRequestMsg struct {
+	Count int
+}
+
+// ArchiveCompleteMsg is sent when archive operation completes
+type ArchiveCompleteMsg struct {
+	Count int
 }
 
 // TaskManagerModel manages the task list view with filtering, sorting, and grouping
@@ -43,10 +69,14 @@ type TaskManagerModel struct {
 	groupState   GroupState
 
 	// Sub-components
-	infoBar     InfoBarModel
-	fuzzyPicker *FuzzyPickerModel
-	textInput   *TextInputModel
-	taskEditor  *TaskEditorModel
+	infoBar           InfoBarModel
+	fuzzyPicker       *FuzzyPickerModel
+	textInput         *TextInputModel
+	taskEditor        *TaskEditorModel
+	confirmationModal *ConfirmationModal
+
+	// File view mode
+	fileViewMode FileViewMode
 
 	// Inline search
 	searchActive     bool
@@ -102,6 +132,17 @@ func (m *TaskManagerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleTextInputResult(msg)
 	case TaskEditorResultMsg:
 		return m.handleEditorResult(msg)
+	case ToggleFileViewMsg:
+		m.cycleFileViewMode()
+		m.refreshDisplayTasks()
+		return m, nil
+	case StartArchiveMsg:
+		return m.handleStartArchive()
+	case ConfirmationResultMsg:
+		return m.handleConfirmationResult(msg)
+	case ArchiveCompleteMsg:
+		m.confirmationModal = nil
+		return m, tea.Printf("✓ Archived %d tasks to done.txt", msg.Count)
 	}
 
 	// Handle inline search mode (before other sub-components)
@@ -118,6 +159,12 @@ func (m *TaskManagerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Handle sub-component updates
+	if m.confirmationModal != nil {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			cmd := m.confirmationModal.Update(keyMsg)
+			return m, cmd
+		}
+	}
 	if m.fuzzyPicker != nil {
 		var cmd tea.Cmd
 		_, cmd = m.fuzzyPicker.Update(msg)
@@ -165,13 +212,23 @@ func (m *TaskManagerModel) View() string {
 	var b strings.Builder
 
 	// Update info bar with current state
-	m.infoBar.SetContext(&m.inputContext, &m.filterState, &m.sortState, &m.groupState, m.filterState.SearchQuery)
+	m.infoBar.SetContext(&m.inputContext, &m.filterState, &m.sortState, &m.groupState, m.filterState.SearchQuery, m.fileViewMode)
 
 	// Info bar (always visible)
 	b.WriteString(m.infoBar.View())
 	b.WriteString("\n\n")
 
 	// Sub-component overlays (except search - which is inline)
+	if m.confirmationModal != nil {
+		modal := m.confirmationModal.View()
+		// Center the modal on screen
+		return lipgloss.Place(
+			m.infoBar.Width, 30,
+			lipgloss.Center, lipgloss.Center,
+			modal,
+			lipgloss.WithWhitespaceChars(" "),
+		)
+	}
 	if m.fuzzyPicker != nil {
 		b.WriteString(m.fuzzyPicker.View())
 		return b.String()
@@ -440,6 +497,11 @@ func (m *TaskManagerModel) handleSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 
 func (m *TaskManagerModel) handleEscape() (tea.Model, tea.Cmd) {
 	// Close any open sub-component
+	if m.confirmationModal != nil {
+		m.confirmationModal = nil
+		m.inputContext.Reset()
+		return m, nil
+	}
 	if m.fuzzyPicker != nil {
 		m.fuzzyPicker = nil
 		m.inputContext.Reset()
@@ -465,10 +527,11 @@ func (m *TaskManagerModel) handleEscape() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// In normal mode, clear filters
+	// In normal mode, clear filters and file view mode
 	m.filterState.Reset()
 	m.sortState.Reset()
 	m.groupState.Reset()
+	m.fileViewMode = FileViewAll
 	m.refreshDisplayTasks()
 	return m, nil
 }
@@ -671,6 +734,9 @@ func (m *TaskManagerModel) refreshDisplayTasks() {
 	// Apply filters
 	filtered := ApplyFilters(m.tasks, m.filterState)
 
+	// Apply file view filter
+	filtered = m.applyFileViewFilter(filtered)
+
 	// Apply sort
 	sorted := ApplySort(filtered, m.sortState)
 
@@ -713,11 +779,97 @@ func (m *TaskManagerModel) selectedTask() *data.Task {
 	return nil
 }
 
+// handleStartArchive initiates the archive flow
+func (m *TaskManagerModel) handleStartArchive() (tea.Model, tea.Cmd) {
+	// Count completed tasks in todo.txt
+	todoPath := data.GetTodoFilePath()
+	count := 0
+	for _, task := range m.tasks {
+		if task.Done && task.File == todoPath {
+			count++
+		}
+	}
+
+	if count == 0 {
+		return m, tea.Printf("No completed tasks to archive")
+	}
+
+	// Show confirmation modal
+	m.confirmationModal = NewConfirmationModal(
+		fmt.Sprintf("Archive %d completed task(s)?", count),
+		"This will move completed tasks from todo.txt to done.txt",
+		50,
+	)
+	m.inputContext.TransitionTo(ModeConfirmation)
+	return m, nil
+}
+
+// handleConfirmationResult processes the confirmation modal result
+func (m *TaskManagerModel) handleConfirmationResult(msg ConfirmationResultMsg) (tea.Model, tea.Cmd) {
+	m.confirmationModal = nil
+	m.inputContext.Reset()
+
+	if msg.Confirmed {
+		// Count tasks to archive
+		todoPath := data.GetTodoFilePath()
+		count := 0
+		for _, task := range m.tasks {
+			if task.Done && task.File == todoPath {
+				count++
+			}
+		}
+		// Send archive request to AppModel
+		return m, func() tea.Msg {
+			return ArchiveRequestMsg{Count: count}
+		}
+	}
+
+	return m, nil
+}
+
 // IsInModalState returns true if the task manager is in a mode that should
 // block global key handling (editor, picker, input, search, or any non-normal mode)
 func (m *TaskManagerModel) IsInModalState() bool {
-	if m.taskEditor != nil || m.fuzzyPicker != nil || m.textInput != nil || m.searchActive {
+	if m.taskEditor != nil || m.fuzzyPicker != nil || m.textInput != nil || m.searchActive || m.confirmationModal != nil {
 		return true
 	}
 	return m.inputContext.Mode != ModeNormal
+}
+
+// cycleFileViewMode cycles through file view modes: All -> TodoOnly -> DoneOnly -> All
+func (m *TaskManagerModel) cycleFileViewMode() {
+	m.fileViewMode = (m.fileViewMode + 1) % 3
+	m.cursor = 0 // Reset cursor position
+}
+
+// fileViewModeString returns a display string for the current file view mode
+func (m *TaskManagerModel) fileViewModeString() string {
+	switch m.fileViewMode {
+	case FileViewTodoOnly:
+		return "todo.txt"
+	case FileViewDoneOnly:
+		return "done.txt"
+	default:
+		return "All"
+	}
+}
+
+// applyFileViewFilter filters tasks based on the current file view mode
+func (m *TaskManagerModel) applyFileViewFilter(tasks []data.Task) []data.Task {
+	if m.fileViewMode == FileViewAll {
+		return tasks
+	}
+
+	todoPath := data.GetTodoFilePath()
+	donePath := data.GetDoneFilePath()
+
+	var filtered []data.Task
+	for _, task := range tasks {
+		if m.fileViewMode == FileViewTodoOnly && task.File == todoPath {
+			filtered = append(filtered, task)
+		} else if m.fileViewMode == FileViewDoneOnly && task.File == donePath {
+			filtered = append(filtered, task)
+		}
+	}
+	return filtered
 }
