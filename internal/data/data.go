@@ -47,14 +47,22 @@ func (e *ParseTaskMismatchError) Error() string {
 	return e.Msg
 }
 
-func UpdateTask(tasks []Task, updatedTask Task) {
+func UpdateTask(tasks []Task, updatedTask Task) []Task {
 	logs.Logger.Printf("Update Task: %s\n", updatedTask)
+	found := false
 	for i, t := range tasks {
 		if t.ID == updatedTask.ID {
 			logs.Logger.Println("task found. updating...")
 			tasks[i] = updatedTask
+			found = true
+			break
 		}
 	}
+	if !found {
+		logs.Logger.Println("task not found. adding new task...")
+		tasks = append(tasks, updatedTask)
+	}
+	return tasks
 }
 
 func LoadData(allowMismatch bool) ([]Task, map[string]Project, error) {

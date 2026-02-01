@@ -12,7 +12,7 @@ func TestTaskManager_ForwardsTextInputResultToTaskEditor(t *testing.T) {
 	tm := &TaskManagerModel{}
 	tm.Init()
 	tasks := []data.Task{
-		{Name: "Test task", Tags: make(map[string]string)},
+		{Name: "Test task", Tags: make(map[string]string), File: data.GetTodoFilePath()},
 	}
 	tm.WithTasks(tasks)
 
@@ -60,7 +60,7 @@ func TestTaskManager_ForwardsFuzzyPickerResultToTaskEditor(t *testing.T) {
 	tm := &TaskManagerModel{}
 	tm.Init()
 	tasks := []data.Task{
-		{Name: "Test task", Projects: []string{}, Tags: make(map[string]string)},
+		{Name: "Test task", Projects: []string{}, Tags: make(map[string]string), File: data.GetTodoFilePath()},
 	}
 	tm.WithTasks(tasks)
 	tm.allProjects = []string{"proj1", "proj2"}
@@ -108,7 +108,7 @@ func TestTaskManager_HandlesOwnTextInputResult(t *testing.T) {
 	tm := &TaskManagerModel{}
 	tm.Init()
 	tasks := []data.Task{
-		{Name: "Test task", Tags: make(map[string]string)},
+		{Name: "Test task", Tags: make(map[string]string), File: data.GetTodoFilePath()},
 	}
 	tm.WithTasks(tasks)
 
@@ -132,7 +132,7 @@ func TestTaskManager_HandlesOwnFuzzyPickerResult(t *testing.T) {
 	tm := &TaskManagerModel{}
 	tm.Init()
 	tasks := []data.Task{
-		{Name: "Test task", Projects: []string{"proj1"}, Tags: make(map[string]string)},
+		{Name: "Test task", Projects: []string{"proj1"}, Tags: make(map[string]string), File: data.GetTodoFilePath()},
 	}
 	tm.WithTasks(tasks)
 	tm.allProjects = []string{"proj1", "proj2"}
@@ -162,7 +162,7 @@ func TestTaskManager_TaskEditorCloseReturnsToTaskList(t *testing.T) {
 	tm := &TaskManagerModel{}
 	tm.Init()
 	tasks := []data.Task{
-		{Name: "Test task", Priority: data.PriorityA, Tags: make(map[string]string)},
+		{Name: "Test task", Priority: data.PriorityA, Tags: make(map[string]string), File: data.GetTodoFilePath()},
 	}
 	tm.WithTasks(tasks)
 
@@ -209,8 +209,8 @@ func TestTaskManager_SearchStartsInFilterMode(t *testing.T) {
 	tm := &TaskManagerModel{}
 	tm.Init()
 	tasks := []data.Task{
-		{Name: "alpha task", Tags: make(map[string]string)},
-		{Name: "beta task", Tags: make(map[string]string)},
+		{Name: "alpha task", Tags: make(map[string]string), File: data.GetTodoFilePath()},
+		{Name: "beta task", Tags: make(map[string]string), File: data.GetTodoFilePath()},
 	}
 	tm.WithTasks(tasks)
 
@@ -230,9 +230,9 @@ func TestTaskManager_SearchJKTypeInFilterMode(t *testing.T) {
 	tm := &TaskManagerModel{}
 	tm.Init()
 	tasks := []data.Task{
-		{Name: "alpha task", Tags: make(map[string]string)},
-		{Name: "beta task", Tags: make(map[string]string)},
-		{Name: "gamma task", Tags: make(map[string]string)},
+		{Name: "alpha task", Tags: make(map[string]string), File: data.GetTodoFilePath()},
+		{Name: "beta task", Tags: make(map[string]string), File: data.GetTodoFilePath()},
+		{Name: "gamma task", Tags: make(map[string]string), File: data.GetTodoFilePath()},
 	}
 	tm.WithTasks(tasks)
 
@@ -258,7 +258,7 @@ func TestTaskManager_SearchEnterExitsFilterMode(t *testing.T) {
 	tm := &TaskManagerModel{}
 	tm.Init()
 	tasks := []data.Task{
-		{Name: "alpha task", Tags: make(map[string]string)},
+		{Name: "alpha task", Tags: make(map[string]string), File: data.GetTodoFilePath()},
 	}
 	tm.WithTasks(tasks)
 
@@ -289,9 +289,9 @@ func TestTaskManager_SearchJKNavigateAfterExitingFilterMode(t *testing.T) {
 	tm := &TaskManagerModel{}
 	tm.Init()
 	tasks := []data.Task{
-		{Name: "alpha task", Tags: make(map[string]string)},
-		{Name: "beta task", Tags: make(map[string]string)},
-		{Name: "gamma task", Tags: make(map[string]string)},
+		{Name: "alpha task", Tags: make(map[string]string), File: data.GetTodoFilePath()},
+		{Name: "beta task", Tags: make(map[string]string), File: data.GetTodoFilePath()},
+		{Name: "gamma task", Tags: make(map[string]string), File: data.GetTodoFilePath()},
 	}
 	tm.WithTasks(tasks)
 
@@ -323,7 +323,7 @@ func TestTaskManager_SearchSlashReEntersFilterMode(t *testing.T) {
 	tm := &TaskManagerModel{}
 	tm.Init()
 	tasks := []data.Task{
-		{Name: "alpha task", Tags: make(map[string]string)},
+		{Name: "alpha task", Tags: make(map[string]string), File: data.GetTodoFilePath()},
 	}
 	tm.WithTasks(tasks)
 
@@ -352,7 +352,7 @@ func TestTaskManager_SearchEscClearsQueryInFilterMode(t *testing.T) {
 	tm := &TaskManagerModel{}
 	tm.Init()
 	tasks := []data.Task{
-		{Name: "alpha task", Tags: make(map[string]string)},
+		{Name: "alpha task", Tags: make(map[string]string), File: data.GetTodoFilePath()},
 	}
 	tm.WithTasks(tasks)
 
@@ -385,7 +385,7 @@ func TestTaskManager_SearchDoubleEscExitsSearchMode(t *testing.T) {
 	tm := &TaskManagerModel{}
 	tm.Init()
 	tasks := []data.Task{
-		{Name: "alpha task", Tags: make(map[string]string)},
+		{Name: "alpha task", Tags: make(map[string]string), File: data.GetTodoFilePath()},
 	}
 	tm.WithTasks(tasks)
 

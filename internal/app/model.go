@@ -173,7 +173,7 @@ func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Legacy path without service
-		data.UpdateTask(a.tasks, msg.Task)
+		a.tasks = data.UpdateTask(a.tasks, msg.Task)
 		return a, func() tea.Msg {
 			err := data.WriteData(a.tasks)
 			if err != nil {

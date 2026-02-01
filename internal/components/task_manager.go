@@ -3,6 +3,7 @@ package components
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -109,6 +110,7 @@ func (m *TaskManagerModel) Init() tea.Cmd {
 	m.sortState = NewSortState()
 	m.groupState = NewGroupState()
 	m.infoBar = NewInfoBar()
+	m.fileViewMode = FileViewTodoOnly
 	return nil
 }
 
@@ -335,6 +337,8 @@ func (m *TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		return m.startSearch()
 	case " ":
 		return m.toggleTaskDone()
+	case "n":
+		return m.startNewTask()
 	}
 	return m, nil
 }
@@ -531,7 +535,7 @@ func (m *TaskManagerModel) handleEscape() (tea.Model, tea.Cmd) {
 	m.filterState.Reset()
 	m.sortState.Reset()
 	m.groupState.Reset()
-	m.fileViewMode = FileViewAll
+	m.fileViewMode = FileViewTodoOnly
 	m.refreshDisplayTasks()
 	return m, nil
 }
@@ -549,6 +553,43 @@ func (m *TaskManagerModel) startSearch() (tea.Model, tea.Cmd) {
 	m.searchFilterMode = true // Start in filter typing mode
 	m.inputContext.TransitionTo(ModeSearch)
 	return m, m.searchInput.Focus()
+}
+
+func (m *TaskManagerModel) startNewTask() (tea.Model, tea.Cmd) {
+	// Prompt for task name using text input
+	m.textInput = NewTextInput("New Task Name", "Enter task description...", nil)
+	m.inputContext.TransitionTo(ModeCreateTask)
+	return m, m.textInput.Focus()
+}
+
+func (m *TaskManagerModel) createNewTaskAndOpenEditor(taskName string) (tea.Model, tea.Cmd) {
+	if strings.TrimSpace(taskName) == "" {
+		m.inputContext.Reset()
+		return m, nil
+	}
+
+	// Generate a unique ID for the new task
+	// Use timestamp + random component to ensure uniqueness
+	timestamp := time.Now().Format("20060102150405")
+	randomPart := fmt.Sprintf("%d", time.Now().UnixNano()%10000)
+	newID := data.HashTaskLine(timestamp + randomPart)
+
+	// Create new task
+	newTask := &data.Task{
+		ID:       newID,
+		Name:     taskName,
+		Projects: []string{},
+		Contexts: []string{},
+		Done:     false,
+		Tags:     make(map[string]string),
+		Priority: data.PriorityNone,
+		File:     data.GetTodoFilePath(),
+	}
+
+	// Open editor with the new task
+	m.taskEditor = NewTaskEditor(newTask, m.allProjects, m.allContexts)
+	m.inputContext.TransitionTo(ModeTaskEditor)
+	return m, nil
 }
 
 func (m *TaskManagerModel) startDateFilter() (tea.Model, tea.Cmd) {
@@ -708,6 +749,9 @@ func (m *TaskManagerModel) handleTextInputResult(msg TextInputResultMsg) (tea.Mo
 	if m.inputContext.Mode == ModeSearch {
 		m.filterState.SearchQuery = msg.Value
 		m.refreshDisplayTasks()
+	} else if m.inputContext.Mode == ModeCreateTask {
+		// Create new task and open editor
+		return m.createNewTaskAndOpenEditor(msg.Value)
 	}
 
 	m.inputContext.Reset()

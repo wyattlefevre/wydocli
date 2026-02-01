@@ -19,6 +19,7 @@ const (
 	ModeSearch      // '/' - fuzzy text search
 	ModeDateInput   // entering date for filter
 	ModeFuzzyPicker // generic picker for project/context/file
+	ModeCreateTask  // 'n' pressed - entering new task name
 
 	// Task Editor modes
 	ModeTaskEditor  // viewing task details
@@ -123,6 +124,8 @@ func (c *InputModeContext) String() string {
 		return "Edit Project"
 	case ModeConfirmation:
 		return "Confirmation"
+	case ModeCreateTask:
+		return "Create"
 	default:
 		return "Unknown"
 	}

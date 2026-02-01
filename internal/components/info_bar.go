@@ -76,7 +76,7 @@ func (m *InfoBarModel) renderModeLine() string {
 
 	if m.InputContext == nil {
 		mode = modeStyle.Render("[Normal]")
-		hints = hintStyle.Render("f:filter  s:sort  g:group  /:search  F:toggle-file  A:archive  enter:edit  space:toggle  q:quit")
+		hints = hintStyle.Render("n:new  f:filter  s:sort  g:group  /:search  F:toggle-file  A:archive  enter:edit  space:toggle  q:quit")
 	} else {
 		mode = modeStyle.Render("[" + m.InputContext.String() + "]")
 		hints = m.getHintsForMode()
@@ -87,12 +87,12 @@ func (m *InfoBarModel) renderModeLine() string {
 
 func (m *InfoBarModel) getHintsForMode() string {
 	if m.InputContext == nil {
-		return hintStyle.Render("f:filter  s:sort  g:group  /:search  enter:edit  space:toggle")
+		return hintStyle.Render("n:new  f:filter  s:sort  g:group  /:search  enter:edit  space:toggle")
 	}
 
 	switch m.InputContext.Mode {
 	case ModeNormal:
-		return hintStyle.Render("f:filter  s:sort  g:group  /:search  F:toggle-file  A:archive  enter:edit  space:toggle")
+		return hintStyle.Render("n:new  f:filter  s:sort  g:group  /:search  F:toggle-file  A:archive  enter:edit  space:toggle")
 
 	case ModeFilterSelect:
 		return hintStyle.Render("/:search  d:date  p:project  P:priority  t:context  s:status  f:file  esc:back")
@@ -149,11 +149,11 @@ func (m *InfoBarModel) renderFiltersLine() string {
 		parts = append(parts, filterStyle.Render("Group: "+m.GroupState.String()))
 	}
 
-	// File view mode
-	if m.FileViewMode != FileViewAll {
+	// File view mode - display when not in default (TodoOnly) mode
+	if m.FileViewMode != FileViewTodoOnly {
 		var viewMode string
-		if m.FileViewMode == FileViewTodoOnly {
-			viewMode = "View: todo.txt"
+		if m.FileViewMode == FileViewAll {
+			viewMode = "View: todo.txt + done.txt"
 		} else {
 			viewMode = "View: done.txt"
 		}
