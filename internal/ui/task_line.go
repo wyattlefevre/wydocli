@@ -31,11 +31,13 @@ func StyledTaskLine(t data.Task) string {
 
 	// Priority
 	if t.Priority != 0 {
-		if t.Done {
-			parts = append(parts, doneStyle.Render("("+string(t.Priority)+")"))
-		} else {
-			parts = append(parts, priorityStyle.Render("("+string(t.Priority)+")"))
-		}
+		taskLine = append(taskLine, priorityStyle.Render("("+string(t.Priority)+") "))
+	}
+	if t.CreatedDate != "" {
+		taskLine = append(taskLine, dateStyle.Render(t.CreatedDate))
+	}
+	if t.CompletionDate != "" {
+		taskLine = append(taskLine, dateStyle.Render(t.CompletionDate))
 	}
 
 	// Name
@@ -49,29 +51,17 @@ func StyledTaskLine(t data.Task) string {
 
 	// Projects
 	for _, p := range t.Projects {
-		if t.Done {
-			parts = append(parts, doneStyle.Render("+"+p))
-		} else {
-			parts = append(parts, projectStyle.Render("+"+p))
-		}
+		taskLine = append(taskLine, projectStyle.Render(" +"+p))
 	}
 
 	// Contexts
 	for _, c := range t.Contexts {
-		if t.Done {
-			parts = append(parts, doneStyle.Render("@"+c))
-		} else {
-			parts = append(parts, contextStyle.Render("@"+c))
-		}
+		taskLine = append(taskLine, contextStyle.Render(" @"+c))
 	}
 
 	// Tags (including due date)
 	for k, v := range t.Tags {
-		if t.Done {
-			parts = append(parts, doneStyle.Render(k+":"+v))
-		} else {
-			parts = append(parts, tagStyle.Render(k+":"+v))
-		}
+		taskLine = append(taskLine, tagStyle.Render(" "+k+":"+v))
 	}
 
 	return strings.Join(parts, " ")

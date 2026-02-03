@@ -162,7 +162,11 @@ func ParseTask(input string, id string, file string) Task {
 	// Check for priority (can appear here for both completed and non-completed tasks)
 	t.Priority = ParsePriority(input)
 	if t.Priority != PriorityNone {
-		input = input[4:] // "(A) " = 4 chars
+		input = input[3:]
+	}
+
+	if input[0] == ' ' {
+		input = input[1:]
 	}
 
 	input = strings.TrimLeft(input, " ")
@@ -214,7 +218,7 @@ func ParseTask(input string, id string, file string) Task {
 		return t
 	}
 
-	// Find first metadata marker
+
 	firstMetaIdx := FirstMetaIndex(
 		FirstProjectIndex(input),
 		FirstContextIndex(input),
